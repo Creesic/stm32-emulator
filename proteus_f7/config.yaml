@@ -1,0 +1,20 @@
+cpu:
+  svd: STM32F767.svd
+  vector_table: 0x00200000
+regions:
+  - name: ROM-ITCM-alias
+    start: 0x00200000
+    load: rusefi.bin
+    size: 0x200000
+  - name: ITCM-RAM
+    start: 0x00000000
+    size: 0x4000
+  - name: DTCM-RAM
+    start: 0x20000000
+    size: 0x20000
+  - name: SRAM1
+    start: 0x20020000
+    size: 0x5c000
+  - name: SRAM2
+    start: 0x2007c000
+    size: 0x4000

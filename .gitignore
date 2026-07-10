@@ -1,1 +1,4 @@
 /target
+/proteus_f7/rusefi.bin
+/proteus_f7/STM32F767.svd
+/proteus_f7/baseline-trace.log
