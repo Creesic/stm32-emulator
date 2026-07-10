@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+pub mod registry;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EmulationSupport {
     Runnable,
@@ -37,6 +39,20 @@ impl KnownVariant {
             id: "unsupported",
             display_name: "Unsupported board",
             mcu: None,
+            support: EmulationSupport::Unsupported,
+            profile: None,
+        }
+    }
+
+    pub(crate) const fn cataloged(
+        id: &'static str,
+        display_name: &'static str,
+        mcu: Option<&'static str>,
+    ) -> Self {
+        Self {
+            id,
+            display_name,
+            mcu,
             support: EmulationSupport::Unsupported,
             profile: None,
         }
