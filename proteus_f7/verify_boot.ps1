@@ -14,6 +14,7 @@ foreach ($line in @(
     'svd: STM32F767.svd',
     'vector_table: 0x00200000',
     'start: 0x00200000',
+    'start: 0x08000000',
     'load: rusefi.bin',
     'start: 0x20000000',
     'start: 0x20020000',
