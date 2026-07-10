@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 pub mod rcc;
+pub mod pwr;
 pub mod spi;
 pub mod usart;
 pub mod systick;
@@ -13,6 +14,7 @@ pub mod scb;
 pub mod sw_spi;
 
 use rcc::*;
+use pwr::*;
 use serde::Deserialize;
 use spi::*;
 use usart::*;
@@ -41,6 +43,25 @@ pub struct Peripherals {
     peripherals: Vec<PeripheralSlot<RefCell<Box<dyn Peripheral>>>>,
     pub nvic: RefCell<Nvic>,
     pub gpio: RefCell<GpioPorts>,
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn pwr_reports_voltage_scaling_ready_after_configuration() {
+        assert_eq!(
+            crate::peripherals::pwr::Pwr::csr1_after_cr1_write(0x0000_c000) & 0x0000_4000,
+            0x0000_4000
+        );
+    }
+
+    #[test]
+    fn pwr_reports_overdrive_ready_after_overdrive_is_enabled() {
+        assert_eq!(
+            crate::peripherals::pwr::Pwr::csr1_after_cr1_write(0x0001_c000) & 0x0001_0000,
+            0x0001_0000
+        );
+    }
 }
 
 pub struct PeripheralSlot<T> {
@@ -80,6 +101,7 @@ impl Peripherals {
             .or_else(||       Usart::new(&name, ext_devices))
             .or_else(||        Fsmc::new(&name, ext_devices))
             .or_else(||         Rcc::new(&name))
+            .or_else(||         Pwr::new(&name))
             .or_else(||         I2c::new(&name))
             .or_else(||         Dma::new(&name))
             .or_else(||         Spi::new(&name, ext_devices))

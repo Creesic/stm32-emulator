@@ -20,8 +20,10 @@ hardware modeling.
 Create a self-contained `proteus_f7/` example with a YAML configuration,
 the firmware image, and the selected STM32F7 SVD. The configuration will:
 
-1. Map `rusefi.bin` at `0x00200000` and set `cpu.vector_table` to that
-   address.
+1. Map `rusefi.bin` at both `0x00200000` (the code-interface alias) and
+   `0x08000000` (the AXI flash alias), and set `cpu.vector_table` to the
+   code-interface address. The latter mapping is required because the firmware
+   accesses constants through `0x080…` while executing through `0x002…`.
 2. Map the required STM32F7 RAM regions, beginning with the region containing
    the documented initial stack pointer.
 3. Use the SVD for the exact Proteus F7 MCU. The part number is a required

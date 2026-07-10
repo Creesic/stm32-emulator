@@ -6,6 +6,10 @@ regions:
     start: 0x00200000
     load: rusefi.bin
     size: 0x200000
+  - name: ROM-AXI-alias
+    start: 0x08000000
+    load: rusefi.bin
+    size: 0x200000
   - name: ITCM-RAM
     start: 0x00000000
     size: 0x4000
