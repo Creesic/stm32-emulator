@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+pub mod process;
 pub mod registry;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
