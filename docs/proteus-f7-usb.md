@@ -65,19 +65,32 @@ descriptors specify, then arms bulk OUT for reception. See
 `proteus_f7/usb_trace_notes.md`'s "Full enumeration confirmed end to end
 against real firmware" for the complete byte-level trace.
 
-Getting here took three real, evidence-driven bug fixes to the OTG-FS
+Getting here took four real, evidence-driven bug fixes to the OTG-FS
 model — a `GET_DESCRIPTOR` interrupt-timing bug (`DOEPINT.STUP` fired
 before firmware could read the SETUP bytes, producing a spurious zero-byte
-response instead of the real 18-byte descriptor) and a missing
+response instead of the real 18-byte descriptor), a missing
 `DIEPINT.TXFE`/`DTXFSTS` implementation (firmware waited forever for a "TX
-FIFO empty" interrupt this project never raised) — both found by reading
-ChibiOS's actual USB driver source and confirmed against live captures; see
-usb_trace_notes.md for the full account.
+FIFO empty" interrupt this project never raised), and a missing
+zero-length OUT status acknowledgment after `GET_DESCRIPTOR`'s data stage
+(firmware halted with `chSysHalt` the next time it tried to arm an OUT
+reception, since the flag from the never-acknowledged prior stage was
+still set) — all found by reading ChibiOS's actual USB driver source and
+confirmed against live captures, the last one using debug symbols from a
+freshly built firmware image that exactly matches this project's running
+binary. See `proteus_f7/usb_trace_notes.md` for the full account, including
+the exact ChibiOS source lines and assertion involved.
 
 ## Current limitation
 
-The capture that confirmed the above ran out of its 60-second window during
-`SET_LINE_CODING`'s data stage, before `SET_CONTROL_LINE_STATE` and
-"configured" state were reached — not a known bug, just an unfinished
-capture. A real TunerStudio-style protocol exchange over the bulk endpoint
-has not yet been attempted.
+A real TunerStudio protocol byte (`'Q'`, the plain unframed hello/query
+command) was sent directly over the TCP bridge after the `chSysHalt` fix.
+Firmware no longer halts, and the byte is confirmed reaching the real CDC
+bulk OUT endpoint correctly (`GRXSTSP`/`DOEPINT.XFRC` match exactly). No
+ASCII response has been observed yet, though: firmware goes on to activate
+its SD-card-as-USB-mass-storage endpoint (unrelated to CDC) and then simply
+doesn't touch OTG-FS registers again within the practical capture window
+(tens of seconds to a few minutes, limited by `-vvvv`'s logging overhead
+against real wall-clock time). This looks like firmware's own thread
+scheduling rather than a further modeling bug — every register-level
+interaction observed has matched real firmware behavior exactly — but it
+isn't confirmed end to end yet.

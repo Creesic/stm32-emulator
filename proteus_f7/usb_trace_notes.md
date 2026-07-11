@@ -245,11 +245,102 @@ connected after boot, held open) shows, in order, byte-for-byte:
 The capture ended here (60 real seconds elapsed) before the SET_LINE_CODING
 7-byte data stage (`OUT_DATA`/`OUT_COMP`, still queued in `rx_status` at
 that point) and `SET_CONTROL_LINE_STATE` were processed — not a functional
-problem, just the wall-clock window closing. Given every stage observed so
-far matches exactly and uses the same uniform mechanism (no stage-specific
-special-casing), there's no specific reason to expect the remaining two
-stages to behave differently; confirming them fully would need either a
-longer capture or a real TunerStudio-style protocol exchange attempt.
+problem, just the wall-clock window closing.
+
+## A fourth bug, found by attempting a real TunerStudio byte exchange: firmware halts
+
+Attempting the simplest real protocol exchange (send a single unframed `'Q'`
+byte — rusEFI's plain "hello"/query command, no length or CRC framing
+needed — and wait for an ASCII response; command bytes and framing
+confirmed from `firmware/console/binary/tunerstudio.cpp` and
+`firmware/integration/ts_protocol.txt`) reproducibly halted real firmware
+instead of responding, in every capture. `pc` got stuck alternating between
+two adjacent addresses (`nop; b self`) after `cpsid i` (interrupts disabled)
+— a classic ChibiOS `chSysHalt` panic, not a stall.
+
+Root-causing this precisely required *matching* debug symbols: the
+`rusefi.bin` this project runs was built from a source snapshot ~12 days
+older than this session's `epicefi_fw` checkout (confirmed by the differing
+embedded `TS_SIGNATURE` build-date strings), so `addr2line` against the
+current checkout's `epicefi.elf` produced nonsensical, scattered function
+names for `rusefi.bin`'s addresses. The fix: build `epicefi.elf`/`epicefi.bin`
+fresh from the current checkout (already done earlier this session) and
+swap it in for verification — its vector table (initial SP `0x2002_1000`,
+reset vector `0x0020_03d5`) matches `rusefi.bin`'s exactly, so it's a valid
+drop-in replacement for this board config. With matching symbols,
+`addr2line` resolved the exact call stack:
+
+```
+otg_epout_handler.constprop.0   hal_usb_lld.c:458   (STUP dispatch)
+_usb_ep0setup                   hal_usb.c:863
+hybridRequestHook               usbcfg.cpp:455       (-> sduRequestsHook)
+_usb_ep0setup                   hal_usb.c:943         (OUT-phase: usbStartReceiveI)
+usbStartReceiveI                hal_usb.c:471
+chDbgCheckClassI                chdebug.c:251         (passes)
+chSysHalt                       chsys.c:209           (<- osalDbgAssert fails)
+__disable_irq                   cmsis_gcc.h:142        (cpsid i)
+strlncpy                        efistring.cpp:7        (copying the panic reason)
+```
+
+The failing assertion is `hal_usb.c:476`:
+`osalDbgAssert(!usbGetReceiveStatusI(usbp, ep), "already receiving");`
+
+**Why it fails**: a real USB host acknowledges a `DEV2HOST` (IN-direction)
+control transfer's data stage with a **zero-length OUT status packet**
+before sending the next SETUP. `_usb_ep0in`'s completion handler
+(`USB_EP0_IN_WAITING_TX0` case) arms EP0 to receive exactly this via
+`usbStartReceiveI(usbp, 0, NULL, 0)`, which sets `usbp->receiving`'s bit for
+that endpoint. This project's virtual host previously skipped that status
+stage entirely and queued the next SETUP directly after `GET_DESCRIPTOR`'s
+IN transfer completed — so the flag stays set forever. It's harmless until
+the first *later* stage that itself calls `usbStartReceiveI`:
+`SET_LINE_CODING` is the first (and, in this 5-stage sequence, only)
+`HOST2DEV` stage with a real data phase, and its call hits the still-set
+flag and fails the assertion — which is why the halt always happened at
+exactly this point, never earlier.
+
+Of the 5 stages this project drives, only `GET_DESCRIPTOR` is `DEV2HOST` —
+`SET_ADDRESS`/`SET_CONFIGURATION`/`SET_CONTROL_LINE_STATE` have no data
+stage at all (their status ack is an IN-direction zero-length transmit,
+already handled correctly by this project's existing zero-length
+`complete_in_transfer` path), and `SET_LINE_CODING` is `HOST2DEV` with data,
+not `DEV2HOST`. So `GET_DESCRIPTOR` needed a one-off fix, not a general
+per-stage mechanism.
+
+**Fix** (`src/peripherals/otg_fs.rs`): added
+`virtual_host_control_in_status_ack`, which queues a zero-length
+`OUT_DATA`/`OUT_COMP` pair (clearing `usbp->receiving` via the existing
+`GRXSTSP`-pop-driven `DOEPINT.XFRC` mechanism, no new plumbing needed), and
+called it from `advance_virtual_host`'s `AwaitingDeviceDescriptor` case
+before queuing the `SET_ADDRESS` SETUP packet.
+
+**Verified**: re-ran the exact same `'Q'`-byte exchange attempt twice more
+against the freshly built `epicefi.bin` (matching symbols) after the fix.
+Both captures ran for 90+ seconds with the connection held open and showed
+**zero** further `chSysHalt` occurrences (the only `cpsid i` in either
+capture was the one already present during normal early boot) — a clean
+before/after comparison against the identical binary, not just "it didn't
+crash this specific run." Both captures also confirmed the `'Q'` byte
+itself reaching firmware correctly: `GRXSTSP` popped `OUT_DATA`(bcnt=1,
+ep=2) then `OUT_COMP`(ep=2) — exactly this project's encoding for a 1-byte
+bulk OUT delivery on the real CDC data endpoint — and firmware's
+`oe[2].DOEPINT` read back `0x01` (`XFRC`) and cleared it, meaning
+`otg_epout_handler` genuinely processed the byte as a completed OUT
+transfer.
+
+**Not yet observed**: an actual ASCII response byte back over the TCP
+socket. Both post-fix captures show firmware going on to activate endpoint
+1 (`USB_MSD_DATA_EP = 0x01` per
+`ChibiOS-Contrib/os/hal/include/hal_usb_msd.h:36` — rusEFI's SD-card-as-USB-
+mass-storage feature, unrelated to CDC) and then simply not touching
+OTG-FS registers again for 70M+ further instructions even with the TCP
+connection held open the whole time. This looks like real firmware being
+busy with its own thread scheduling (most likely the MSD mount) rather than
+a further bug in this project's model — every register-level interaction
+observed has matched expectations exactly — but getting a visible
+end-to-end response within a practical `-vvvv` capture window (which
+trades off badly against real wall-clock time; see "Live capture attempts"
+below) remains unconfirmed.
 
 ### Live capture attempts
 

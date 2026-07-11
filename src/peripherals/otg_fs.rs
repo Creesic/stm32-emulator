@@ -335,6 +335,25 @@ impl OtgFs {
         }
     }
 
+    // Real USB control-IN transfers end with a zero-length OUT status
+    // packet the HOST sends to acknowledge the device's IN data — ChibiOS's
+    // `_usb_ep0in` arms EP0 to receive exactly this via `usbStartReceiveI`,
+    // which sets `usbp->receiving` and asserts it's not already set. This
+    // project's virtual host previously skipped the status stage entirely
+    // and went straight to the next SETUP, leaving that flag permanently
+    // set — harmless until the first later stage that itself calls
+    // `usbStartReceiveI` (SET_LINE_CODING, the first OUT-direction stage
+    // with a data phase), which then hit the "already receiving" assertion
+    // and halted firmware (`chSysHalt`). Root-caused by cross-referencing
+    // ChibiOS's exact source (`hal_usb.c:476`) against a live capture using
+    // debug symbols from a freshly built, matching firmware image.
+    fn virtual_host_control_in_status_ack(&mut self, endpoint: usize) {
+        self.rx_status
+            .push_back(Self::rx_status_word(Self::RXSTS_OUT_DATA, 0, endpoint));
+        self.rx_status
+            .push_back(Self::rx_status_word(Self::RXSTS_OUT_COMP, 0, endpoint));
+    }
+
     pub fn read_fifo(&mut self, _endpoint: usize) -> u32 {
         self.pop_rx_fifo_word()
     }
@@ -369,6 +388,10 @@ impl OtgFs {
     fn advance_virtual_host(&mut self) {
         self.virtual_host_step = match self.virtual_host_step {
             VirtualHostStep::AwaitingDeviceDescriptor => {
+                // GET_DESCRIPTOR is DEV2HOST (IN data stage) — unlike every
+                // other stage here, it needs the zero-length OUT status ack
+                // before the next SETUP (see virtual_host_control_in_status_ack).
+                self.virtual_host_control_in_status_ack(0);
                 self.virtual_host_setup(0, Self::set_address_packet(Self::VIRTUAL_DEVICE_ADDRESS));
                 VirtualHostStep::AwaitingSetAddressStatus
             }
@@ -714,6 +737,33 @@ mod tests {
         assert_eq!(
             otg.next_setup_request(),
             OtgFs::set_address_packet(OtgFs::VIRTUAL_DEVICE_ADDRESS)
+        );
+        // Regression test for a real firmware halt: real USB hosts ack an
+        // IN-direction control transfer's data stage with a zero-length OUT
+        // status packet before sending the next SETUP. ChibiOS's
+        // usbStartReceiveI (hal_usb.c:476) asserts the endpoint isn't
+        // already marked "receiving" — if this project's virtual host
+        // skips straight to the next SETUP without that status ack, the
+        // flag it set while waiting is still set the next time firmware
+        // calls usbStartReceiveI (SET_LINE_CODING, the first OUT-direction
+        // stage with a data phase), and real firmware halts
+        // (chSysHalt) on the failed assertion. Confirmed against a live
+        // capture with matching debug symbols before this fix, and again
+        // after.
+        assert_eq!(
+            otg.register_read(OtgFs::GRXSTSP) & OtgFs::RXSTS_PKTSTS_MASK,
+            OtgFs::RXSTS_OUT_DATA
+        );
+        assert_eq!(
+            otg.register_read(OtgFs::GRXSTSP) & OtgFs::RXSTS_PKTSTS_MASK,
+            OtgFs::RXSTS_OUT_COMP
+        );
+        assert!(
+            otg.register_read(OtgFs::DOEP_BASE + OtgFs::EP_INT_OFFSET) & OtgFs::DOEPINT_XFRC != 0
+        );
+        assert_eq!(
+            otg.register_read(OtgFs::GRXSTSP) & OtgFs::RXSTS_PKTSTS_MASK,
+            OtgFs::RXSTS_SETUP_DATA
         );
     }
 

@@ -1102,6 +1102,23 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     (endpoint 3) endpoint activation — see usb_trace_notes.md's "Full
     enumeration confirmed end to end against real firmware".
 
+    A fourth bug surfaced by attempting a real TunerStudio byte exchange
+    (send `'Q'`, wait for a response): firmware halted (`chSysHalt`) the
+    first time it tried to arm an OUT reception past `GET_DESCRIPTOR`, since
+    this project's virtual host skipped the mandatory zero-length OUT status
+    ack that real hosts send after a DEV2HOST control transfer's data stage
+    — leaving ChibiOS's `usbp->receiving` flag permanently set. Root-caused
+    with matching debug symbols (rebuilt `epicefi.elf`/`.bin` from the
+    current firmware checkout, since the running `rusefi.bin` was ~12 days
+    older) resolving the exact assertion at `hal_usb.c:476`. Fixed by adding
+    `virtual_host_control_in_status_ack`, called after `GET_DESCRIPTOR`'s IN
+    transfer completes. Verified: two more captures against the same
+    matching binary showed zero further halts, and the `'Q'` byte correctly
+    reaching the real CDC bulk OUT endpoint (2). No ASCII response observed
+    yet — firmware goes on to activate its unrelated SD-card-as-USB-storage
+    endpoint and doesn't touch OTG-FS again within a practical capture
+    window; see usb_trace_notes.md's "A fourth bug..." section.
+
 - [ ] **Step 6: Commit**
 
     git add src/peripherals/otg_fs.rs proteus_f7/usb_trace_notes.md
