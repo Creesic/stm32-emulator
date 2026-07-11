@@ -138,33 +138,46 @@ Endpoints are only enabled once ChibiOS's own `usb_event` callback receives
 `SET_CONFIGURATION` request handler — i.e. bulk forwarding only becomes
 live once the virtual host's `SET_CONFIGURATION` stage completes.
 
-### Open question found while reading the source
+### Resolved: the zero-byte transfer was a real bug, now fixed
 
 `ChibiOS/os/hal/src/hal_usb.c`'s `_usb_ep0setup` computes the actual
 descriptor transfer size from `usbSetupTransfer`'s `n` argument (18 bytes
 for the observed `GET_DESCRIPTOR(DEVICE)` request — see
 `default_handler`'s `USB_REQ_GET_DESCRIPTOR` case, `usbSetupTransfer(usbp,
-dp->ud_string, dp->ud_size, NULL)` where `dp->ud_size == 18`). But the
-zero-byte `DIEPTSIZ`/`DIEPCTL` arm this project observed and treats as the
-GET_DESCRIPTOR completion (see "Enumeration" above) matches
+dp->ud_string, dp->ud_size, NULL)` where `dp->ud_size == 18`). The
+zero-byte `DIEPTSIZ`/`DIEPCTL` arm this project originally observed and
+mistakenly treated as the GET_DESCRIPTOR completion matched
 `OTGv1/hal_usb_lld.c`'s `usb_lld_start_in`, `isp->txsize == 0` branch
-(`DIEPTSIZ = DIEPTSIZ_PKTCNT(1) | DIEPTSIZ_XFRSIZ(0)`, i.e. `0x00080000` —
-an exact match), not the nonzero-size branch that should carry the real 18
-bytes. Cross-referencing `hal_usb_lld.c`'s ISR dispatch order
-(`usb_lld_serve_interrupt`: OEPINT handling, i.e. `_usb_ep0setup`, runs
-*before* `otg_rxfifo_handler`'s `GRXSTSP` pop, in the same interrupt pass)
-against this project's captured trace order (DOEPINT/STUP read+clear, then
-the zero-byte `DIEPTSIZ`/`DIEPCTL` arm, then `GRXSTSP` finally popped)
-confirms the two match — `_usb_ep0setup` really does run before the SETUP
-bytes are copied out of the shared RX FIFO in this capture. Whether that
-zero-byte transfer is a real ChibiOS priming step this project's virtual
-host should NOT treat as "the descriptor response complete," or whether the
-next capture would show the real 18-byte transfer immediately after, is not
-yet resolved. `advance_virtual_host` currently advances on every EP0 IN
-completion including this one, which may be advancing to `SET_ADDRESS`
-before firmware has actually sent descriptor content — worth a follow-up
-investigation before relying on the full 5-stage enumeration completing
-end to end.
+exactly (`0x00080000`) — not the nonzero-size branch that carries the real
+18 bytes.
+
+Root cause: `virtual_host_setup` raised `DOEPINT.STUP` and set
+`GINTSTS.RXFLVL` simultaneously, synchronously with queuing the packet. But
+`hal_usb_lld.c`'s ISR dispatch (`usb_lld_serve_interrupt`) processes OEPINT
+(which invokes `_usb_ep0setup`) *before* it processes RXFLVL (which pops
+`GRXSTSP` and copies the SETUP bytes into `setup_buf`) in the same pass —
+so `_usb_ep0setup` ran with an empty/stale setup buffer, and whatever it
+decoded from that triggered the spurious zero-byte transfer instead of the
+real 18-byte one.
+
+**Fix** (`src/peripherals/otg_fs.rs`): `DOEPINT.STUP` is no longer raised
+in `virtual_host_setup` — it's now raised only when firmware pops the
+`SETUP_COMP` status word via `GRXSTSP` (i.e. once the RXFIFO delivery is
+actually complete, matching real silicon). `GINTSTS.RXFLVL` is now computed
+dynamically from `rx_status`'s non-emptiness rather than stored as a
+firmware-clearable bit, since it's read-only/level-triggered on real
+hardware (confirmed by the trace showing firmware writing back the RXFLVL
+bit as part of a blanket ack, which real hardware would simply ignore). The
+same fix was applied to the bulk OUT completion path (`DOEPINT.XFRC` now
+also fires on the `OUT_COMP` pop, not eagerly).
+
+**Verified against a fresh live capture**: firmware now reads the actual
+FIFO bytes (`0x01000680`, `0x00120000` — decoding to the real
+`bmRequestType/bRequest/wValue` and `wIndex/wLength=18` of the SETUP
+packet), then writes `ie[0].DIEPTSIZ = 0x2008_0012` (`XFRSIZ=18`, matching
+`usb_lld_start_in`'s nonzero-size branch: `MCNT(1)|PKTCNT(1)|XFRSIZ(18)`)
+before arming `DIEPCTL` — the real 18-byte descriptor response, not the
+previous spurious zero-byte one.
 
 ### Live capture attempts
 

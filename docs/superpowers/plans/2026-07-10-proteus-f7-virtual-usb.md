@@ -1074,10 +1074,19 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     `USBD1_DATA_AVAILABLE_EP`), and endpoint 3 is a non-bulk CDC interrupt-IN
     notification endpoint. `OtgFs::new` now calls `set_bulk_endpoints(2, 2)`.
 
-    Reading that source also surfaced an open question about whether
-    `advance_virtual_host` advances too early — see usb_trace_notes.md's
-    "Open question found while reading the source" for the trace/source
-    cross-reference. Not fixed in this task; flagged for follow-up.
+    Reading that source also surfaced a real bug: `virtual_host_setup` raised
+    `DOEPINT.STUP` synchronously with queuing the packet, but ChibiOS's ISR
+    processes OEPINT (dispatching `_usb_ep0setup`) before it pops `GRXSTSP`
+    in the same pass, so firmware decoded an empty setup buffer and armed a
+    spurious zero-byte response instead of the real 18-byte descriptor.
+    Fixed by deferring `DOEPINT.STUP`/`DOEPINT.XFRC` until firmware actually
+    pops the corresponding `SETUP_COMP`/`OUT_COMP` status word, and by
+    computing `GINTSTS.RXFLVL` dynamically from `rx_status` occupancy
+    instead of storing it as a firmware-clearable bit (it's read-only on
+    real silicon). Re-verified against a fresh live capture: firmware now
+    reads the real SETUP bytes and arms the correct 18-byte transfer — see
+    usb_trace_notes.md's "Resolved: the zero-byte transfer was a real bug,
+    now fixed".
 
 - [ ] **Step 6: Commit**
 

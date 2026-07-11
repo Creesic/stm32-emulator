@@ -58,11 +58,14 @@ transfers (`GET_DESCRIPTOR`, `SET_ADDRESS`, `SET_CONFIGURATION`,
 `SET_LINE_CODING`, `SET_CONTROL_LINE_STATE`) deterministically, and this has
 been confirmed byte-for-byte against the real firmware's register accesses
 (see `proteus_f7/usb_trace_notes.md`). Bulk IN/OUT forwarding is wired to
-endpoint 2 (the real CDC data endpoint, confirmed from firmware source —
-see usb_trace_notes.md's "Bulk endpoints" section), but whether the virtual
-host's 5-stage control sequence actually reaches "configured" against real
-firmware is not yet confirmed end to end: reading the firmware's own ChibiOS
-USB driver source surfaced an open question about whether this project
-advances past the `GET_DESCRIPTOR` stage prematurely (usb_trace_notes.md's
-"Open question found while reading the source"). A real TunerStudio-style
-protocol exchange has not yet been attempted.
+endpoint 2 (the real CDC data endpoint, confirmed from firmware source).
+
+Reading the firmware's own ChibiOS USB driver source surfaced and confirmed
+a real bug: `GET_DESCRIPTOR` interrupt timing raised `DOEPINT.STUP` before
+firmware could read the actual SETUP bytes, causing a spurious zero-byte
+response instead of the real 18-byte descriptor — fixed, and re-verified
+against a fresh capture showing firmware now reading the real SETUP content
+and arming the correct 18-byte transfer (see usb_trace_notes.md's "Resolved:
+the zero-byte transfer was a real bug, now fixed"). Whether the full 5-stage
+sequence reaches "configured" and a real TunerStudio-style protocol exchange
+have not yet been attempted end to end.

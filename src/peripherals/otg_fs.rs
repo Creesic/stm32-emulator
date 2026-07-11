@@ -98,6 +98,7 @@ impl OtgFs {
     const DOEPINT_STUP: u32 = 1 << 3;
     const XFRSIZ_MASK: u32 = 0x7_ffff;
 
+    const RXSTS_PKTSTS_MASK: u32 = 0xf << 17;
     const RXSTS_SETUP_DATA: u32 = 6 << 17;
     const RXSTS_SETUP_COMP: u32 = 4 << 17;
     const RXSTS_OUT_DATA: u32 = 2 << 17;
@@ -214,6 +215,14 @@ impl OtgFs {
     fn effective_gintsts(&self) -> u32 {
         let daint = self.daint() & self.daint_mask;
         let mut status = self.global_interrupt_status;
+        // RXFLVL is read-only/level-triggered on real silicon ("RX FIFO
+        // non-empty"), not a firmware-clearable status bit — computing it
+        // fresh here means register_write's GINTSTS W1C handling correctly
+        // has no effect on it, matching hardware, instead of letting
+        // firmware's blanket ack clear a bit it can't actually clear.
+        if !self.rx_status.is_empty() {
+            status |= Self::GINTSTS_RXFLVL;
+        }
         if daint & 0x0000_ffff != 0 {
             status |= Self::GINTSTS_IEPINT;
         }
@@ -291,8 +300,18 @@ impl OtgFs {
             .push_back(Self::rx_status_word(Self::RXSTS_SETUP_DATA, 8, endpoint));
         self.rx_status
             .push_back(Self::rx_status_word(Self::RXSTS_SETUP_COMP, 0, endpoint));
-        self.raise_out_endpoint_interrupt(endpoint, Self::DOEPINT_STUP);
-        self.set_global_interrupt_status(Self::GINTSTS_RXFLVL);
+        // DOEPINT.STUP is NOT raised here: on real hardware it only fires
+        // once the RXFIFO's setup delivery is actually complete, i.e. once
+        // firmware pops the SETUP_COMP status word via GRXSTSP (see
+        // register_read's GRXSTSP arm below). Raising it immediately here
+        // caused firmware's _usb_ep0setup — which ChibiOS's ISR dispatches
+        // from OEPINT/STUP *before* it processes RXFLVL in the same
+        // interrupt pass — to read stale/unpopulated setup bytes (confirmed
+        // by cross-referencing ChibiOS's hal_usb_lld.c against a live
+        // trace; see usb_trace_notes.md's "Open question found while
+        // reading the source"). GINTSTS.RXFLVL is computed dynamically from
+        // rx_status non-emptiness (effective_gintsts), so no explicit set
+        // is needed here either.
     }
 
     pub fn virtual_host_control_out(&mut self, endpoint: usize, packet: [u8; 8], data: &[u8]) {
@@ -401,7 +420,24 @@ impl OtgFs {
             Self::GRSTCTL => self.registers.get(&offset).copied().unwrap_or(0) | 0x8000_0000,
             Self::GINTSTS => self.effective_gintsts(),
             Self::GINTMSK => self.global_interrupt_mask,
-            Self::GRXSTSP => self.rx_status.pop_front().unwrap_or(0),
+            Self::GRXSTSP => {
+                let word = self.rx_status.pop_front().unwrap_or(0);
+                // Real hardware only asserts DOEPINT.STUP/XFRC once the
+                // RXFIFO's delivery is complete — i.e. right here, when
+                // firmware pops the SETUP_COMP/OUT_COMP entry, not when the
+                // virtual host first queues the packet (see
+                // virtual_host_setup and the bulk OUT forwarding in poll).
+                match word & Self::RXSTS_PKTSTS_MASK {
+                    Self::RXSTS_SETUP_COMP => {
+                        self.raise_out_endpoint_interrupt((word & 0xf) as usize, Self::DOEPINT_STUP)
+                    }
+                    Self::RXSTS_OUT_COMP => {
+                        self.raise_out_endpoint_interrupt((word & 0xf) as usize, Self::DOEPINT_XFRC)
+                    }
+                    _ => {}
+                }
+                word
+            }
             Self::GRXSTSR => self.rx_status.front().copied().unwrap_or(0),
             Self::DCFG => self.dcfg,
             Self::DCTL => self.dctl,
@@ -521,8 +557,12 @@ impl Peripheral for OtgFs {
                     ));
                     self.rx_status
                         .push_back(Self::rx_status_word(Self::RXSTS_OUT_COMP, 0, out_ep));
-                    self.raise_out_endpoint_interrupt(out_ep, Self::DOEPINT_XFRC);
-                    self.set_global_interrupt_status(Self::GINTSTS_RXFLVL);
+                    // DOEPINT.XFRC and GINTSTS.RXFLVL are NOT raised here for
+                    // the same reason virtual_host_setup no longer raises
+                    // STUP eagerly: GRXSTSP's OUT_COMP pop (register_read)
+                    // raises XFRC once firmware actually consumes the data,
+                    // and RXFLVL is computed dynamically from rx_status
+                    // non-emptiness (effective_gintsts).
                 }
             }
         }
@@ -672,5 +712,42 @@ mod tests {
         // xfrsiz=3 truncates the word-padded 4-byte push (0x42,0x00,0xff,0x00)
         // to the 3 bytes the endpoint's DIEPTSIZ actually asked to send.
         assert_eq!(otg.pending_bridge_writes, vec![0x42, 0x00, 0xff]);
+    }
+
+    #[test]
+    fn stup_interrupt_fires_only_after_setup_comp_is_popped_not_immediately() {
+        let mut otg = OtgFs::for_test();
+        otg.virtual_host_setup(0, [0x80, 0x06, 0x00, 0x01, 0, 0, 18, 0]);
+        // Queuing the packet must not raise STUP yet — real hardware only
+        // does so once the RXFIFO's setup delivery is actually complete.
+        assert_eq!(
+            otg.register_read(OtgFs::DOEP_BASE + OtgFs::EP_INT_OFFSET),
+            0
+        );
+        otg.register_read(OtgFs::GRXSTSP); // pops SETUP_DATA
+        assert_eq!(
+            otg.register_read(OtgFs::DOEP_BASE + OtgFs::EP_INT_OFFSET),
+            0
+        );
+        otg.register_read(OtgFs::GRXSTSP); // pops SETUP_COMP
+        assert!(
+            otg.register_read(OtgFs::DOEP_BASE + OtgFs::EP_INT_OFFSET) & OtgFs::DOEPINT_STUP != 0
+        );
+    }
+
+    #[test]
+    fn rxflvl_reflects_rx_status_occupancy_and_is_not_firmware_clearable() {
+        let mut otg = OtgFs::for_test();
+        otg.write_global_interrupt_mask(OtgFs::GINTSTS_RXFLVL);
+        assert!(!otg.interrupt_pending());
+        otg.virtual_host_setup(0, [0x80, 0x06, 0x00, 0x01, 0, 0, 18, 0]);
+        assert!(otg.interrupt_pending());
+        // A firmware "ack everything" write must not clear RXFLVL — on real
+        // silicon it's read-only, level-triggered on FIFO occupancy.
+        otg.register_write(OtgFs::GINTSTS, 0xffff_ffff);
+        assert!(otg.interrupt_pending());
+        otg.register_read(OtgFs::GRXSTSP);
+        otg.register_read(OtgFs::GRXSTSP);
+        assert!(!otg.interrupt_pending());
     }
 }
