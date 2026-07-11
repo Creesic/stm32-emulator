@@ -581,6 +581,18 @@ not a transfer size, so it is `DIEPMSK`).
 
 ### Task 4: Implement the FIFO model and a deterministic virtual host enumeration
 
+**Deviations found during implementation, evidence-driven (see
+usb_trace_notes.md's "Enumeration" section for the trace lines):**
+- `register_read` must be `&mut self`, not `&self` — popping `GRXSTSP`/the
+  FIFO on read is inherently mutating, a real conflict this plan's original
+  code sample didn't account for.
+- Nothing in this task's original text ever triggers the *first*
+  `virtual_host_setup` call — `advance_virtual_host` only fires from an
+  EP0 IN completion, but enumeration has to start somehow. The real trigger,
+  confirmed by trace: the first time firmware writes `oe[0].DOEPCTL` with
+  `USBAEP` (bit 15) newly set (trace-observed value `0x1000_8040`) — not
+  `EPENA` (bit 31), which control endpoint 0 never sets for SETUP reception.
+
 **Files:**
 - Modify: src/peripherals/otg_fs.rs
 

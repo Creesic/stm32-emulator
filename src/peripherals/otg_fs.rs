@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use std::{cell::RefCell, collections::{BTreeMap, VecDeque}, rc::Rc};
 
 use crate::{ext_devices::{usb_cdc_tcp::UsbCdcTcp, ExtDevices}, system::System};
 
@@ -11,6 +11,17 @@ struct EndpointRegs {
     ctl: u32,
     int: u32,
     tsiz: u32,
+    armed_in_bytes_sent: u32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum VirtualHostStep {
+    AwaitingDeviceDescriptor,
+    AwaitingSetAddressStatus,
+    AwaitingSetConfigurationStatus,
+    AwaitingSetLineCodingStatus,
+    AwaitingSetControlLineStateStatus,
+    Configured,
 }
 
 pub struct OtgFs {
@@ -27,6 +38,10 @@ pub struct OtgFs {
     diep_empty_mask: u32,
     ep_in: [EndpointRegs; Self::NUM_ENDPOINTS],
     ep_out: [EndpointRegs; Self::NUM_ENDPOINTS],
+    rx_fifo: VecDeque<u8>,
+    rx_status: VecDeque<u32>,
+    tx_fifo: [VecDeque<u8>; Self::NUM_ENDPOINTS],
+    virtual_host_step: VirtualHostStep,
 }
 
 impl OtgFs {
@@ -47,6 +62,9 @@ impl OtgFs {
 
     // Struct-offset constants from ChibiOS's stm32_otg_t (stm32_otg.h),
     // not the SVD's per-sub-block names — see usb_trace_notes.md for why.
+    const GRXSTSR: u32 = 0x001c;
+    const GRXSTSP: u32 = 0x0020;
+
     const DCFG: u32 = 0x0800;
     const DCTL: u32 = 0x0804;
     const DIEPMSK: u32 = 0x0810;
@@ -64,9 +82,25 @@ impl OtgFs {
     const EP_TSIZ_OFFSET: u32 = 0x10;
     const DTXFSTS_OFFSET: u32 = 0x18;
 
+    const FIFO_BASE: u32 = 0x1000;
+    const FIFO_WINDOW: u32 = 0x1000;
+
+    const GINTSTS_RXFLVL: u32 = 1 << 4;
     const GINTSTS_IEPINT: u32 = 1 << 18;
     const GINTSTS_OEPINT: u32 = 1 << 19;
+    const DIEPCTL_EPENA: u32 = 1 << 31;
+    const DOEPCTL_USBAEP: u32 = 1 << 15;
+    const DIEPINT_XFRC: u32 = 1 << 0;
     const DOEPINT_XFRC: u32 = 1 << 0;
+    const DOEPINT_STUP: u32 = 1 << 3;
+    const XFRSIZ_MASK: u32 = 0x7_ffff;
+
+    const RXSTS_SETUP_DATA: u32 = 6 << 17;
+    const RXSTS_SETUP_COMP: u32 = 4 << 17;
+    const RXSTS_OUT_DATA: u32 = 2 << 17;
+    const RXSTS_OUT_COMP: u32 = 3 << 17;
+
+    const VIRTUAL_DEVICE_ADDRESS: u8 = 5;
 
     pub fn new(name: &str, ext_devices: &ExtDevices) -> Option<Box<dyn Peripheral>> {
         if name == "OTG_FS_GLOBAL" {
@@ -84,6 +118,10 @@ impl OtgFs {
                 diep_empty_mask: 0,
                 ep_in: [EndpointRegs::default(); Self::NUM_ENDPOINTS],
                 ep_out: [EndpointRegs::default(); Self::NUM_ENDPOINTS],
+                rx_fifo: VecDeque::new(),
+                rx_status: VecDeque::new(),
+                tx_fifo: Default::default(),
+                virtual_host_step: VirtualHostStep::AwaitingDeviceDescriptor,
             }))
         } else {
             None
@@ -105,6 +143,10 @@ impl OtgFs {
             diep_empty_mask: 0,
             ep_in: [EndpointRegs::default(); Self::NUM_ENDPOINTS],
             ep_out: [EndpointRegs::default(); Self::NUM_ENDPOINTS],
+            rx_fifo: VecDeque::new(),
+            rx_status: VecDeque::new(),
+            tx_fifo: Default::default(),
+            virtual_host_step: VirtualHostStep::AwaitingDeviceDescriptor,
         }
     }
 
@@ -123,6 +165,14 @@ impl OtgFs {
         let rel = offset - base;
         let ep = (rel / Self::EP_STRIDE) as usize;
         (ep < Self::NUM_ENDPOINTS).then_some((ep, rel % Self::EP_STRIDE))
+    }
+
+    fn fifo_endpoint(offset: u32) -> Option<usize> {
+        if offset < Self::FIFO_BASE {
+            return None;
+        }
+        let ep = ((offset - Self::FIFO_BASE) / Self::FIFO_WINDOW) as usize;
+        (ep < Self::NUM_ENDPOINTS).then_some(ep)
     }
 
     fn daint(&self) -> u32 {
@@ -168,13 +218,141 @@ impl OtgFs {
         self.set_global_interrupt_status(Self::USB_RESET);
     }
 
-    fn register_read(&self, offset: u32) -> u32 {
+    fn pop_rx_fifo_word(&mut self) -> u32 {
+        let mut bytes = [0u8; 4];
+        for b in bytes.iter_mut() {
+            *b = self.rx_fifo.pop_front().unwrap_or(0);
+        }
+        u32::from_le_bytes(bytes)
+    }
+
+    fn push_tx_fifo_word(&mut self, ep: usize, value: u32) {
+        self.tx_fifo[ep].extend(value.to_le_bytes());
+        let was_enabled = self.ep_in[ep].ctl & Self::DIEPCTL_EPENA != 0;
+        self.ep_in[ep].armed_in_bytes_sent += 4;
+        let xfrsiz = self.ep_in[ep].tsiz & Self::XFRSIZ_MASK;
+        if was_enabled && self.ep_in[ep].armed_in_bytes_sent >= xfrsiz {
+            self.ep_in[ep].ctl &= !Self::DIEPCTL_EPENA;
+            self.complete_in_transfer(ep);
+        }
+    }
+
+    // Task 5 extends this again with bulk-endpoint TCP forwarding. Both call
+    // sites (here and in the DIEPCTL write handler) funnel through here so
+    // neither later task has to patch more than one method.
+    fn complete_in_transfer(&mut self, ep: usize) {
+        self.raise_in_endpoint_interrupt(ep, Self::DIEPINT_XFRC);
+        if ep == 0 {
+            self.tx_fifo[0].clear();
+            self.advance_virtual_host();
+        }
+    }
+
+    fn rx_status_word(pktsts: u32, byte_count: u32, endpoint: usize) -> u32 {
+        pktsts | (byte_count << 4) | endpoint as u32
+    }
+
+    pub fn virtual_host_setup(&mut self, endpoint: usize, packet: [u8; 8]) {
+        self.rx_fifo.extend(packet);
+        self.rx_status
+            .push_back(Self::rx_status_word(Self::RXSTS_SETUP_DATA, 8, endpoint));
+        self.rx_status
+            .push_back(Self::rx_status_word(Self::RXSTS_SETUP_COMP, 0, endpoint));
+        self.raise_out_endpoint_interrupt(endpoint, Self::DOEPINT_STUP);
+        self.set_global_interrupt_status(Self::GINTSTS_RXFLVL);
+    }
+
+    pub fn virtual_host_control_out(&mut self, endpoint: usize, packet: [u8; 8], data: &[u8]) {
+        self.virtual_host_setup(endpoint, packet);
+        if !data.is_empty() {
+            self.rx_fifo.extend(data.iter().copied());
+            self.rx_status.push_back(Self::rx_status_word(
+                Self::RXSTS_OUT_DATA,
+                data.len() as u32,
+                endpoint,
+            ));
+            self.rx_status
+                .push_back(Self::rx_status_word(Self::RXSTS_OUT_COMP, 0, endpoint));
+        }
+    }
+
+    pub fn read_fifo(&mut self, _endpoint: usize) -> u32 {
+        self.pop_rx_fifo_word()
+    }
+
+    pub fn is_configured(&self) -> bool {
+        self.virtual_host_step == VirtualHostStep::Configured
+    }
+
+    fn get_device_descriptor_packet() -> [u8; 8] {
+        [0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12, 0x00]
+    }
+
+    fn set_address_packet(address: u8) -> [u8; 8] {
+        [0x00, 0x05, address, 0x00, 0x00, 0x00, 0x00, 0x00]
+    }
+
+    fn set_configuration_packet(configuration: u8) -> [u8; 8] {
+        [0x00, 0x09, configuration, 0x00, 0x00, 0x00, 0x00, 0x00]
+    }
+
+    fn set_line_coding_packet() -> ([u8; 8], [u8; 7]) {
+        (
+            [0x21, 0x20, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00],
+            [0x00, 0xc2, 0x01, 0x00, 0x00, 0x00, 0x08], // 115200 8N1
+        )
+    }
+
+    fn set_control_line_state_packet() -> [u8; 8] {
+        [0x21, 0x22, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00] // DTR|RTS set
+    }
+
+    fn advance_virtual_host(&mut self) {
+        self.virtual_host_step = match self.virtual_host_step {
+            VirtualHostStep::AwaitingDeviceDescriptor => {
+                self.virtual_host_setup(0, Self::set_address_packet(Self::VIRTUAL_DEVICE_ADDRESS));
+                VirtualHostStep::AwaitingSetAddressStatus
+            }
+            VirtualHostStep::AwaitingSetAddressStatus => {
+                self.virtual_host_setup(0, Self::set_configuration_packet(1));
+                VirtualHostStep::AwaitingSetConfigurationStatus
+            }
+            VirtualHostStep::AwaitingSetConfigurationStatus => {
+                let (packet, data) = Self::set_line_coding_packet();
+                self.virtual_host_control_out(0, packet, &data);
+                VirtualHostStep::AwaitingSetLineCodingStatus
+            }
+            VirtualHostStep::AwaitingSetLineCodingStatus => {
+                self.virtual_host_setup(0, Self::set_control_line_state_packet());
+                VirtualHostStep::AwaitingSetControlLineStateStatus
+            }
+            VirtualHostStep::AwaitingSetControlLineStateStatus => VirtualHostStep::Configured,
+            VirtualHostStep::Configured => VirtualHostStep::Configured,
+        };
+    }
+
+    #[cfg(test)]
+    fn next_setup_request(&self) -> [u8; 8] {
+        let mut packet = [0u8; 8];
+        for (i, b) in self.rx_fifo.iter().take(8).enumerate() {
+            packet[i] = *b;
+        }
+        packet
+    }
+
+    // &mut self (not &self, as the register model used before this task):
+    // reading FIFO_BASE or GRXSTSP is a popping read on real hardware, so
+    // this method has always had to mutate once those existed.
+    fn register_read(&mut self, offset: u32) -> u32 {
+        if let Some(ep) = Self::fifo_endpoint(offset) {
+            return if ep == 0 { self.pop_rx_fifo_word() } else { 0 };
+        }
         if let Some((ep, reg)) = Self::decode_endpoint(Self::DIEP_BASE, offset) {
             return match reg {
                 Self::EP_CTL_OFFSET => self.ep_in[ep].ctl,
                 Self::EP_INT_OFFSET => self.ep_in[ep].int,
                 Self::EP_TSIZ_OFFSET => self.ep_in[ep].tsiz,
-                Self::DTXFSTS_OFFSET => 0, // FIFO space accounting arrives in Task 4
+                Self::DTXFSTS_OFFSET => 0, // FIFO space accounting arrives in Task 5
                 _ => 0,
             };
         }
@@ -190,6 +368,8 @@ impl OtgFs {
             Self::GRSTCTL => self.registers.get(&offset).copied().unwrap_or(0) | 0x8000_0000,
             Self::GINTSTS => self.effective_gintsts(),
             Self::GINTMSK => self.global_interrupt_mask,
+            Self::GRXSTSP => self.rx_status.pop_front().unwrap_or(0),
+            Self::GRXSTSR => self.rx_status.front().copied().unwrap_or(0),
             Self::DCFG => self.dcfg,
             Self::DCTL => self.dctl,
             Self::DIEPMSK => self.diep_mask,
@@ -202,9 +382,24 @@ impl OtgFs {
     }
 
     fn register_write(&mut self, offset: u32, value: u32) {
+        if let Some(ep) = Self::fifo_endpoint(offset) {
+            self.push_tx_fifo_word(ep, value);
+            return;
+        }
         if let Some((ep, reg)) = Self::decode_endpoint(Self::DIEP_BASE, offset) {
             match reg {
-                Self::EP_CTL_OFFSET => self.ep_in[ep].ctl = value,
+                Self::EP_CTL_OFFSET => {
+                    let was_enabled = self.ep_in[ep].ctl & Self::DIEPCTL_EPENA != 0;
+                    self.ep_in[ep].ctl = value;
+                    let now_enabled = value & Self::DIEPCTL_EPENA != 0;
+                    if now_enabled && !was_enabled {
+                        self.ep_in[ep].armed_in_bytes_sent = 0;
+                        if self.ep_in[ep].tsiz & Self::XFRSIZ_MASK == 0 {
+                            self.ep_in[ep].ctl &= !Self::DIEPCTL_EPENA;
+                            self.complete_in_transfer(ep);
+                        }
+                    }
+                }
                 Self::EP_INT_OFFSET => self.ep_in[ep].int &= !value,
                 Self::EP_TSIZ_OFFSET => self.ep_in[ep].tsiz = value,
                 _ => {}
@@ -213,7 +408,26 @@ impl OtgFs {
         }
         if let Some((ep, reg)) = Self::decode_endpoint(Self::DOEP_BASE, offset) {
             match reg {
-                Self::EP_CTL_OFFSET => self.ep_out[ep].ctl = value,
+                Self::EP_CTL_OFFSET => {
+                    let was_active = self.ep_out[ep].ctl & Self::DOEPCTL_USBAEP != 0;
+                    self.ep_out[ep].ctl = value;
+                    let now_active = value & Self::DOEPCTL_USBAEP != 0;
+                    // Real hardware waits for a SETUP token from the host;
+                    // our virtual host supplies its own initiative instead,
+                    // and this is the first point firmware signals it's
+                    // ready to receive one — marking EP0 OUT active during
+                    // reset handling (trace-observed write 0x1000_8040 sets
+                    // USBAEP, not EPENA — EP0's control transfers don't use
+                    // EPENA the way bulk/interrupt endpoints do). Fire only
+                    // once, not on every later re-arm.
+                    if ep == 0
+                        && now_active
+                        && !was_active
+                        && self.virtual_host_step == VirtualHostStep::AwaitingDeviceDescriptor
+                    {
+                        self.virtual_host_setup(0, Self::get_device_descriptor_packet());
+                    }
+                }
                 Self::EP_INT_OFFSET => self.ep_out[ep].int &= !value,
                 Self::EP_TSIZ_OFFSET => self.ep_out[ep].tsiz = value,
                 _ => {}
@@ -332,6 +546,61 @@ mod tests {
         assert_eq!(
             otg.register_read(OtgFs::GINTSTS) & OtgFs::GINTSTS_OEPINT,
             OtgFs::GINTSTS_OEPINT
+        );
+    }
+
+    #[test]
+    fn endpoint_zero_setup_packet_is_read_from_fifo() {
+        let mut otg = OtgFs::for_test();
+        otg.virtual_host_reset();
+        otg.virtual_host_setup(0, [0x80, 0x06, 0x00, 0x01, 0, 0, 18, 0]);
+        assert_eq!(otg.read_fifo(0), 0x0100_0680);
+    }
+
+    #[test]
+    fn enabling_endpoint_zero_out_after_reset_queues_the_first_get_descriptor_setup() {
+        let mut otg = OtgFs::for_test();
+        otg.virtual_host_reset();
+        // Trace-observed value (usb_trace_notes.md): firmware writes
+        // oe[0].DOEPCTL = 0x1000_8040 while handling reset — this is the
+        // real bit pattern (sets USBAEP, bit 15; NOT EPENA, bit 31, which
+        // control endpoint 0 never uses this way), and is the signal our
+        // virtual host uses to know firmware is ready for the first SETUP.
+        otg.register_write(OtgFs::DOEP_BASE + OtgFs::EP_CTL_OFFSET, 0x1000_8040);
+        assert_eq!(
+            otg.next_setup_request(),
+            OtgFs::get_device_descriptor_packet()
+        );
+    }
+
+    #[test]
+    fn firmware_completing_the_device_descriptor_response_advances_to_set_address() {
+        let mut otg = OtgFs::for_test();
+        otg.virtual_host_reset();
+        otg.virtual_host_setup(0, OtgFs::get_device_descriptor_packet());
+        // Firmware drains the 8-byte SETUP packet via GRXSTSP + two FIFO
+        // words before it ever responds, exactly like the real ChibiOS
+        // driver does — without this, the packet would still be sitting at
+        // the front of rx_fifo when the next SETUP is queued below.
+        otg.register_read(OtgFs::GRXSTSP);
+        otg.register_read(OtgFs::FIFO_BASE);
+        otg.register_read(OtgFs::FIFO_BASE);
+        otg.register_read(OtgFs::GRXSTSP);
+        // Firmware arms an 18-byte IN response and pushes it word-by-word.
+        otg.register_write(OtgFs::DIEP_BASE + OtgFs::EP_TSIZ_OFFSET, 18);
+        otg.register_write(
+            OtgFs::DIEP_BASE + OtgFs::EP_CTL_OFFSET,
+            0x1000_8040 | OtgFs::DIEPCTL_EPENA,
+        );
+        for _ in 0..5 {
+            otg.register_write(OtgFs::FIFO_BASE, 0);
+        }
+        assert!(
+            otg.register_read(OtgFs::DIEP_BASE + OtgFs::EP_INT_OFFSET) & OtgFs::DIEPINT_XFRC != 0
+        );
+        assert_eq!(
+            otg.next_setup_request(),
+            OtgFs::set_address_packet(OtgFs::VIRTUAL_DEVICE_ADDRESS)
         );
     }
 }

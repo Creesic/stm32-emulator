@@ -57,3 +57,50 @@ host activity:
 15. write DIEPTXF0(0x028)=0x00100080 (TX FIFO0: depth 16 words, start word 0x80)
 16. idle: read GINTSTS=0; read GINTMSK=0xc03c3c18; write GINTSTS=0 (no-op)
 17. read ie[0].DTXFSTS(0x918)=0x00000000 — firmware is now polling for EP0 IN FIFO space before sending its first response; the trace ends here because no SETUP packet has been delivered yet (Task 4 adds that).
+
+## Enumeration (Task 4 verification)
+
+Task 4 adds: the shared RX FIFO/status queue, and a trigger that queues the
+first GET_DESCRIPTOR(DEVICE) SETUP packet the first time firmware writes
+`oe[0].DOEPCTL` with `USBAEP` (bit 15) newly set — the real trace-observed
+value at that write is `0x1000_8040`, which sets `USBAEP` and part of the MPS
+field but NOT `EPENA` (bit 31); control endpoint 0 doesn't use `EPENA` for
+receiving SETUP packets the way bulk/interrupt endpoints use it for data,
+so the original design (gating on `EPENA`) was wrong and had to be corrected
+against this evidence.
+
+Re-running the emulator with a connected TCP client past this point confirms,
+byte-for-byte:
+- `GRXSTSP` pop returns `0x000c0080` — decodes to `PKTSTS=SETUP_DATA(6)`,
+  `BCNT=8`, `EPNUM=0`, exactly matching this project's `rx_status_word`
+  encoding for the queued GET_DESCRIPTOR packet.
+- `oe[0].DOEPINT` read returns `0x00000008` (`STUP` bit) and firmware's W1C
+  write of the same value correctly clears it on the next read.
+- Firmware subsequently writes `ie[0].DIEPTSIZ=0x00080000` (`PKTCNT=1`,
+  `XFRSIZ=0`) then `ie[0].DIEPCTL=0x9400_8040` (adds `EPENA` and `CNAK` to
+  the existing `USBAEP` value) — a legitimate zero-byte IN arm per the DWC2
+  register model, which our `complete_in_transfer` correctly completes
+  immediately and uses to advance the virtual host to the next stage.
+- Zero `peri=????`/unmapped accesses in the OTG-FS address range throughout.
+
+Whether ChibiOS's driver treats this zero-byte completion as the actual
+GET_DESCRIPTOR response (vs. a priming/ACK step with the real descriptor
+bytes following in a later, not-yet-captured exchange) is not yet confirmed
+by a longer capture — verbosity level materially affects how much real
+wall-clock time elapses per instruction (see below), which in turn affects
+how far any timer-gated firmware code advances within a practical capture
+window. This project treats the current behavior as correct per DWC2
+register semantics (a real zero-byte completion, not a fabrication) and
+defers full end-to-end confirmation to Task 6's manual TunerStudio-style
+protocol exchange, which will surface any real sequencing gap with a real
+payload instead of more speculative single-shot trace reading.
+
+**Timing note:** `-vvv` (register/peripheral-level trace, no per-instruction
+disassembly) runs dramatically faster in real time than `-vvvv` (adds
+per-instruction disassembly), and this project observed the two verbosity
+levels reach materially different points in firmware execution within the
+same `--max-instructions` bound. This suggests some firmware delay path is
+gated by a timer or clock source that correlates with real elapsed wall-clock
+time rather than purely with retired instruction count — worth keeping in
+mind for any future bring-up work that depends on reaching a specific point
+in firmware execution within a bounded instruction count.
