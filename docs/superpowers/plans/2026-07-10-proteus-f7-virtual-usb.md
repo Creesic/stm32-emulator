@@ -42,7 +42,7 @@
 - Produces Flash::acr_after_write(value: u32) -> u32.
 - Produces Flash::new(name: &str) -> Option<Box<dyn Peripheral>>.
 
-- [ ] **Step 1: Write failing FLASH tests in src/peripherals/mod.rs**
+- [x] **Step 1: Write failing FLASH tests in src/peripherals/mod.rs**
 
     #[test]
     fn flash_acr_retains_latency_and_cache_bits() {
@@ -52,12 +52,12 @@
         );
     }
 
-- [ ] **Step 2: Verify the test fails**
+- [x] **Step 2: Verify the test fails**
 
     Run: cargo test flash_acr_retains_latency_and_cache_bits
     Expected: FAIL because peripherals::flash does not exist.
 
-- [ ] **Step 3: Implement the minimal register**
+- [x] **Step 3: Implement the minimal register**
 
     pub struct Flash { acr: u32 }
 
@@ -72,7 +72,7 @@
     Read and write acr at offset 0x0000, then register Flash::new before the
     generic fallback in Peripherals::register_peripheral.
 
-- [ ] **Step 4: Verify the register and the boot harness**
+- [x] **Step 4: Verify the register and the boot harness**
 
     Run: cargo test flash_acr_retains_latency_and_cache_bits
     Expected: PASS.
@@ -85,7 +85,7 @@
     Expected: the old FLASH_ACR wait is absent; the new OTG assertion fails
     until OTG-FS is implemented.
 
-- [ ] **Step 5: Record trace evidence**
+- [x] **Step 5: Record trace evidence**
 
     Run from proteus_f7:
 
@@ -95,7 +95,7 @@
     registers, configuration value, CDC control requests, and bulk endpoint
     addresses in usb_trace_notes.md. Record only observed values.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
     git add src/peripherals/flash.rs src/peripherals/mod.rs proteus_f7/verify_boot.ps1 proteus_f7/usb_trace_notes.md
     git commit -m "feat: retain Proteus F7 flash latency configuration"
@@ -112,7 +112,7 @@
 - Produces UsbCdcTcp::new(config), poll(), local_addr(), push_from_device(bytes), and take_for_device(maximum).
 - Produces ExtDevices::poll() for the emulator hook.
 
-- [ ] **Step 1: Write the failing loopback test**
+- [x] **Step 1: Write the failing loopback test**
 
     #[test]
     fn loopback_client_exchanges_binary_bytes() {
@@ -133,12 +133,12 @@
         assert_eq!(bridge.take_for_device(64), vec![0x10, 0x20]);
     }
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
     Run: cargo test --test usb_cdc_tcp loopback_client_exchanges_binary_bytes
     Expected: FAIL because UsbCdcTcp does not exist.
 
-- [ ] **Step 3: Implement the nonblocking bridge**
+- [x] **Step 3: Implement the nonblocking bridge**
 
     Bind a nonblocking TcpListener. Accept only with no active client, set the
     client stream nonblocking, and use capped VecDeque byte queues in both
@@ -146,14 +146,14 @@
     then immediately drop it. On disconnect, clear only that client and keep
     the listener open.
 
-- [ ] **Step 4: Add edge tests and wire ExtDevices**
+- [x] **Step 4: Add edge tests and wire ExtDevices**
 
     Add tests for one-client enforcement, disconnect recovery, and cap
     behavior that drops oldest queued bytes. Add usb_cdc_tcp to ExtDevicesConfig
     and construct Rc<RefCell<UsbCdcTcp>> values in into_ext_devices. Implement
     ExtDevices::poll by polling every configured bridge.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
     Run: cargo test --test usb_cdc_tcp
     Expected: PASS.
@@ -196,7 +196,7 @@ not a transfer size, so it is `DIEPMSK`).
 - Produces private helpers `raise_in_endpoint_interrupt(&mut self, ep: usize, bits: u32)`, `raise_out_endpoint_interrupt(&mut self, ep: usize, bits: u32)`, `push_tx_fifo_word(&mut self, ep: usize, value: u32)`, and `complete_in_transfer(&mut self, ep: usize)` — private is sufficient since only `otg_fs.rs` itself (including its own `mod tests`, which can see a parent module's private items) calls them; Tasks 4 and 5 extend `complete_in_transfer`'s body in place.
 - Consumes nothing new from `ExtDevices` in this task.
 
-- [ ] **Step 1: Write proteus_f7/usb_trace_notes.md from the already-captured trace**
+- [x] **Step 1: Write proteus_f7/usb_trace_notes.md from the already-captured trace**
 
     Create the file with this content (transcribed from
     `proteus_f7/usb-plan-evidence.log`, captured earlier this session by
@@ -264,7 +264,7 @@ not a transfer size, so it is `DIEPMSK`).
     17. read ie[0].DTXFSTS(0x918)=0x00000000 — firmware is now polling for EP0 IN FIFO space before sending its first response; the trace ends here because no SETUP packet has been delivered yet (Task 4 adds that).
     ```
 
-- [ ] **Step 2: Write failing controller tests in src/peripherals/otg_fs.rs**
+- [x] **Step 2: Write failing controller tests in src/peripherals/otg_fs.rs**
 
     Add to the existing `#[cfg(test)] mod tests` block:
 
@@ -313,14 +313,14 @@ not a transfer size, so it is `DIEPMSK`).
     }
     ```
 
-- [ ] **Step 3: Verify failure**
+- [x] **Step 3: Verify failure**
 
     Run: `cargo test otg_fs`
     Expected: FAIL — `DCTL`, `DIEP_BASE`, `EP_STRIDE`, `EP_INT_OFFSET`,
     `raise_in_endpoint_interrupt`, `raise_out_endpoint_interrupt`,
     `GINTSTS_OEPINT`, `DOEPINT_XFRC` do not exist yet.
 
-- [ ] **Step 4: Implement the register model**
+- [x] **Step 4: Implement the register model**
 
     Replace the body of `src/peripherals/otg_fs.rs` (keeping the existing
     `GRSTCTL`/`GINTSTS`/`GINTMSK`/`USB_RESET`/`GRSTCTL_*` constants and the
@@ -534,7 +534,7 @@ not a transfer size, so it is `DIEPMSK`).
     }
     ```
 
-- [ ] **Step 5: Widen the modeled range for the endpoints this project uses**
+- [x] **Step 5: Widen the modeled range for the endpoints this project uses**
 
     In `src/peripherals/mod.rs`, `Peripherals::modeled_range` currently
     returns `(base, base + 0x2000)` for `"OTG_FS_GLOBAL"` — enough to reach
@@ -548,12 +548,12 @@ not a transfer size, so it is `DIEPMSK`).
     (`0x7000` = FIFO_BASE 0x1000 + 6 endpoints * FIFO_WINDOW 0x1000, covering
     FIFO indices 0-5.)
 
-- [ ] **Step 6: Verify unit tests pass**
+- [x] **Step 6: Verify unit tests pass**
 
     Run: `cargo test otg_fs`
     Expected: PASS.
 
-- [ ] **Step 7: Verify against the live firmware trace**
+- [x] **Step 7: Verify against the live firmware trace**
 
     Run from proteus_f7 (background is fine; this repeats the capture
     already recorded in usb_trace_notes.md, now against the new register
@@ -574,7 +574,7 @@ not a transfer size, so it is `DIEPMSK`).
     Delete usb-task3-trace.log; it was a verification artifact, not evidence
     (the evidence is already transcribed into usb_trace_notes.md).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
     git add proteus_f7/usb_trace_notes.md src/peripherals/otg_fs.rs src/peripherals/mod.rs
     git commit -m "feat: model OTG-FS global/device/endpoint registers from trace evidence"
@@ -604,7 +604,7 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
 - Produces private helpers `push_tx_fifo_word`, `complete_in_transfer`, `fifo_endpoint`, `pop_rx_fifo_word` — Task 5 extends `complete_in_transfer` further.
 - Consumes `raise_in_endpoint_interrupt`, `raise_out_endpoint_interrupt` from Task 3.
 
-- [ ] **Step 1: Write the failing SETUP/FIFO test from the original design**
+- [x] **Step 1: Write the failing SETUP/FIFO test from the original design**
 
     ```rust
     #[test]
@@ -649,7 +649,7 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     the same reason Task 3's tests could already call `register_write`
     directly.
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
     Run: `cargo test otg_fs`
     Expected: FAIL — `virtual_host_setup`'s signature changed (now takes an
@@ -657,7 +657,7 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     `next_setup_request`/`VIRTUAL_DEVICE_ADDRESS`/`DIEPCTL_EPENA` do not
     exist yet.
 
-- [ ] **Step 3: Add FIFO storage and the RX status queue**
+- [x] **Step 3: Add FIFO storage and the RX status queue**
 
     Add fields:
 
@@ -795,7 +795,7 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     Self::GRXSTSR => self.rx_status.front().copied().unwrap_or(0),
     ```
 
-- [ ] **Step 4: Implement virtual_host_setup, virtual_host_control_out, and read_fifo**
+- [x] **Step 4: Implement virtual_host_setup, virtual_host_control_out, and read_fifo**
 
     ```rust
     const RXSTS_SETUP_DATA: u32 = 6 << 17;
@@ -865,7 +865,7 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     }
     ```
 
-- [ ] **Step 5: Drive the state machine from EP0 IN completion**
+- [x] **Step 5: Drive the state machine from EP0 IN completion**
 
     Step 3 above already funnels both IN-completion call sites (the
     FIFO-fill check in `push_tx_fifo_word` and the zero-length-transfer
@@ -913,12 +913,12 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     copies the first 8 bytes of `rx_fifo` without popping, used only by
     Step 1's test to assert which request was queued next.
 
-- [ ] **Step 6: Verify unit tests pass**
+- [x] **Step 6: Verify unit tests pass**
 
     Run: `cargo test otg_fs`
     Expected: PASS.
 
-- [ ] **Step 7: Verify against the live firmware trace**
+- [x] **Step 7: Verify against the live firmware trace**
 
     Run the emulator from proteus_f7 with a TCP client connected long enough
     to trigger reset, then GET_DESCRIPTOR. Confirm in the trace that
@@ -929,7 +929,7 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     observed (byte counts and register values only — do not fabricate
     descriptor content, which belongs to the firmware).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
     git add src/peripherals/otg_fs.rs proteus_f7/usb_trace_notes.md
     git commit -m "feat: model OTG-FS FIFOs and a deterministic enumeration host"
@@ -944,7 +944,7 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
 - Consumes `OtgFs::is_configured` from Task 4.
 - Extends `Peripheral::poll` (already implemented on `OtgFs`); no `src/emulator.rs` change is needed — it already calls `d.poll()` then `p.poll(&sys)` every tick (src/emulator.rs:142-143), so `UsbCdcTcp`'s socket I/O is already current before `OtgFs::poll` runs.
 
-- [ ] **Step 1: Write the failing bulk-forwarding test**
+- [x] **Step 1: Write the failing bulk-forwarding test**
 
     Tests in this file are already in the same module tree as `OtgFs`
     (`otg_fs::tests`), so they can set private fields and call private
@@ -973,13 +973,13 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     }
     ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
     Run: `cargo test otg_fs`
     Expected: FAIL — `set_bulk_endpoints` and the `pending_bridge_writes`
     field do not exist yet.
 
-- [ ] **Step 3: Implement bulk endpoint tracking and TCP forwarding**
+- [x] **Step 3: Implement bulk endpoint tracking and TCP forwarding**
 
     Add fields:
 
@@ -1054,7 +1054,7 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     }
     ```
 
-- [ ] **Step 4: Verify unit tests pass**
+- [x] **Step 4: Verify unit tests pass**
 
     Run: `cargo test otg_fs`
     Expected: PASS.
@@ -1138,7 +1138,7 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     fix sent `'Q'` and got back the full 46-byte signature response in 0.21
     real seconds — see usb_trace_notes.md's "A fifth bug..." section.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
     git add src/peripherals/otg_fs.rs proteus_f7/usb_trace_notes.md
     git commit -m "feat: bridge OTG-FS bulk endpoints to the CDC TCP client"
@@ -1154,18 +1154,18 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
 - Uses SVD name `OTG_FS_GLOBAL` (confirmed in Task 3's usb_trace_notes.md).
 - Uses listener 127.0.0.1:29000 and max_buffered_bytes 65536.
 
-- [ ] **Step 1: Add a failing YAML assertion**
+- [x] **Step 1: Add a failing YAML assertion**
 
     Require verify_boot.ps1 to find a `usb_cdc_tcp` device configuration with
     `peripheral: OTG_FS_GLOBAL`, the loopback listener, and the 65536 queue
     limit.
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
     Run: `.\proteus_f7\verify_boot.ps1`
     Expected: FAIL because config.yaml has no USB CDC TCP entry.
 
-- [ ] **Step 3: Add the evidence-backed device configuration**
+- [x] **Step 3: Add the evidence-backed device configuration**
 
     Add under `devices` in proteus_f7/config.yaml:
 
@@ -1174,7 +1174,7 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
             listen: 127.0.0.1:29000
             max_buffered_bytes: 65536
 
-- [ ] **Step 4: Document operation**
+- [x] **Step 4: Document operation**
 
     Create docs/proteus-f7-usb.md covering: launch setup, raw binary TCP
     semantics (no framing beyond the CDC bulk payload bytes themselves), the
@@ -1183,7 +1183,7 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     port — connecting requires a raw TCP client (e.g. `ncat 127.0.0.1
     29000`), not a serial terminal pointed at a COM port.
 
-- [ ] **Step 5: Verify the full route**
+- [x] **Step 5: Verify the full route**
 
     Run: `.\proteus_f7\verify_boot.ps1`
     Expected: PASS through the USB configuration assertions added in Step 1.
@@ -1192,7 +1192,7 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     exchange a captured firmware protocol request and response. Record the
     exact bytes and result in docs/proteus-f7-usb.md.
 
-- [ ] **Step 6: Final checks and commit**
+- [x] **Step 6: Final checks and commit**
 
     Run: `cargo test`
     Expected: PASS.
