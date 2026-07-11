@@ -88,6 +88,7 @@ impl OtgFs {
     const FIFO_BASE: u32 = 0x1000;
     const FIFO_WINDOW: u32 = 0x1000;
 
+    const GINTSTS_SOF: u32 = 1 << 3;
     const GINTSTS_RXFLVL: u32 = 1 << 4;
     const GINTSTS_IEPINT: u32 = 1 << 18;
     const GINTSTS_OEPINT: u32 = 1 << 19;
@@ -590,6 +591,17 @@ impl Peripheral for OtgFs {
             self.host_attached = false;
         }
 
+        if self.host_attached {
+            // A real USB host emits a Start-of-Frame every 1ms regardless of
+            // data activity. ChibiOS's serial-over-USB driver depends on
+            // this: it's the only thing that flushes a partially-filled TX
+            // buffer (sduSOFHookI -> obqTryFlushI), since TsChannelBase's
+            // USB channel doesn't override flush(). Without it, any
+            // response shorter than the USB buffer size sits in the queue
+            // forever and is never transmitted.
+            self.set_global_interrupt_status(Self::GINTSTS_SOF);
+        }
+
         if self.is_configured() {
             if let (Some(out_ep), Some(bridge)) = (self.bulk_out_endpoint, self.bridge.as_ref()) {
                 let bytes = bridge.borrow_mut().take_for_device(64);
@@ -683,6 +695,26 @@ mod tests {
             otg.register_read(OtgFs::GINTSTS) & OtgFs::GINTSTS_OEPINT,
             OtgFs::GINTSTS_OEPINT
         );
+    }
+
+    #[test]
+    fn sof_bit_raises_masked_interrupt_and_clears_on_write_one() {
+        // poll() sets GINTSTS.SOF once per tick while a virtual host is
+        // attached, mirroring the continuous 1ms SOF cadence of a real USB
+        // bus. ChibiOS's serial-over-USB driver enables GINTMSK.SOFM and
+        // never disables it (usbcfg.cpp registers a sof_cb), relying on it
+        // to auto-flush partially-filled TX buffers via sduSOFHookI.
+        let mut otg = OtgFs::for_test();
+        otg.write_global_interrupt_mask(OtgFs::GINTSTS_SOF);
+        assert!(!otg.interrupt_pending());
+        otg.set_global_interrupt_status(OtgFs::GINTSTS_SOF);
+        assert!(otg.interrupt_pending());
+        assert_eq!(
+            otg.register_read(OtgFs::GINTSTS) & OtgFs::GINTSTS_SOF,
+            OtgFs::GINTSTS_SOF
+        );
+        otg.register_write(OtgFs::GINTSTS, OtgFs::GINTSTS_SOF);
+        assert!(!otg.interrupt_pending());
     }
 
     #[test]

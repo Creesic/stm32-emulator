@@ -1119,6 +1119,25 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     endpoint and doesn't touch OTG-FS again within a practical capture
     window; see usb_trace_notes.md's "A fourth bug..." section.
 
+    A fifth bug, found by reading ChibiOS source rather than another live
+    capture: the response signature string was confirmed (via matching-symbol
+    `addr2line`) to be fully computed and written into ChibiOS's
+    serial-over-USB output queue, but no OTG-FS register write ever followed
+    — `obnotify` (the output queue's notify callback, which is what would
+    call `usbStartTransmitI`) was never invoked (confirmed by grepping a full
+    capture log for its address: zero occurrences). Root cause: ChibiOS only
+    auto-flushes a partially-filled TX buffer via the USB Start-of-Frame
+    interrupt (`sduSOFHookI`, wired up because `usbcfg.cpp` registers a
+    non-null `sof_cb`) — `TsChannelBase::flush()` is a no-op for this channel
+    and the response is shorter than the 64-byte TX buffer, so nothing else
+    would ever flush it. This project's virtual host never modeled SOF at
+    all. Fixed by adding `GINTSTS_SOF` and raising it every `poll()` tick
+    while a host is attached — `poll()` already runs roughly every 100,000
+    instructions ("~1-10ms" per its own comment), which is already the right
+    order of magnitude for a SOF heartbeat. Verified: a live capture with the
+    fix sent `'Q'` and got back the full 46-byte signature response in 0.21
+    real seconds — see usb_trace_notes.md's "A fifth bug..." section.
+
 - [ ] **Step 6: Commit**
 
     git add src/peripherals/otg_fs.rs proteus_f7/usb_trace_notes.md

@@ -361,3 +361,78 @@ below) remains unconfirmed.
   wall-clock time without a client ever staying connected long enough to
   matter (the connect script didn't hold the socket open), confirming
   nothing about firmware behavior.
+
+## A fifth bug, found by source-reading rather than live capture: no SOF interrupt ever fires
+
+Chasing the "no visible TunerStudio response" symptom further (the fourth
+bug's fix let the `'Q'` byte reach firmware cleanly, but no response byte was
+ever observed coming back), a live `-vvvv` capture confirmed — via
+matching-symbol `addr2line` against the same freshly-built `epicefi.elf` —
+that the response *is* fully computed and queued:
+
+- `TunerstudioThread::ThreadTask` wakes (`0x0023576c`).
+- `handleQueryCommand` (`0x0026c3cc`) and `TsChannelBase::sendResponse`
+  (`0x0028382c`) each execute exactly once (confirmed via exact `pc=` grep
+  counts against the full capture log).
+- A disassembly trace from `sendResponse`'s entry showed the ~46-byte
+  signature string being copied into ChibiOS's serial-over-USB output
+  buffers queue (`obqWriteTimeout`, via `UsbChannel::write` in
+  `usb_console.cpp` -> `chnWriteTimeout`).
+- Immediately after, the CPU hits an `svc #0` context switch that returns to
+  the **idle thread** (`wfi` loop) — no further OTG-FS register write ever
+  occurs. The byte sits in the queue and nothing transmits it.
+
+Reading ChibiOS source (`hal_buffers.c`, `hal_serial_usb.c`,
+`hw_layer/ports/stm32/serial_over_usb/usbcfg.cpp`) found the exact
+mechanism, and a static check against the full capture log confirmed it
+directly: `obqWriteTimeout`/`obqPutTimeout` only invoke the output queue's
+`notify` callback (`obnotify` in `hal_serial_usb.c`, wired up as
+`SDU1.obqueue.notify`) from `obqPostFullBufferS` — which only runs when a
+buffer is either **completely filled** (64 bytes, `SERIAL_USB_BUFFERS_TX_SIZE`)
+or explicitly force-posted. `TsChannelBase::flush()` (called right after
+`write()` in `sendResponse`) is a **no-op by default**
+(`tunerstudio_io.h:38`), and `usb_console.cpp`'s `UsbChannel` doesn't
+override it — so a short response (well under 64 bytes) never triggers
+`obnotify` through the write/flush path at all. Grepping the full capture
+log for `obnotify`'s address (`0x0020aab8`, found via `nm`) confirmed **zero**
+occurrences, versus one for `handleQueryCommand` in the same log — `obnotify`
+is never called, period.
+
+The actual flush mechanism is `sduSOFHookI` (`hal_serial_usb.c:407`), the
+USB Start-of-Frame interrupt handler: on real hardware a host emits a SOF
+every 1ms *regardless of data activity*, and ChibiOS wires
+`usbcfg.cpp`'s `sof_handler` (`USBConfig.sof_cb`) to call it on every one.
+Because `sof_cb` is non-`NULL`, `hal_usb_lld.c`'s ISR (line ~629) never
+disables `GINTMSK.SOFM` — real firmware expects a continuous SOF heartbeat.
+`sduSOFHookI` checks `obqTryFlushI` and force-posts any partially-filled
+buffer, which is the *only* way a short response ever gets transmitted.
+
+This project's virtual USB host never modeled SOF at all — it only reacts to
+explicit control/bulk transfers it initiates, never generating the
+bus's continuous background heartbeat. So enumeration (all explicit
+SETUP/IN/OUT sequences) and bulk-OUT delivery (also explicit, via `poll()`'s
+bridge-forwarding) both worked correctly, but nothing ever gave firmware a
+reason to flush a short bulk-IN response.
+
+**Fix** (`src/peripherals/otg_fs.rs`): added `GINTSTS_SOF` (bit 3) and raise
+it on every `poll()` tick while a virtual host is attached — `poll()` already
+runs roughly every 100,000 instructions
+(`framebuffers::sdl_engine::PUMP_EVENT_INST_INTERVAL`, "~1-10ms" per its own
+comment), which is already the right order of magnitude for a SOF heartbeat,
+so no new timing mechanism was needed. This is a plain status bit already
+handled generically by the existing W1C `GINTSTS` write path and
+`effective_gintsts()`/`interrupt_pending()` masking logic — no other
+plumbing required.
+
+Found entirely by source-reading, not live capture (this session's
+"should be instant" lesson: long real-time waits don't scale, but grepping a
+capture log for one specific address does).
+
+**Verified end-to-end**: with the fix applied, a fresh `-vvv` capture against
+the same `epicefi.bin`, connecting well after boot (`clk` > 240M, firmware
+already idling normally), sending a raw `'Q'` byte over the TCP bridge got
+back the full 46-byte signature response
+(`epicEFI Tera.2026.07.11.proteus_f7.1877407474\0`) in **0.21 seconds** real
+time — not minutes. This is the first fully successful TunerStudio protocol
+round-trip against this project's virtual USB host, closing out the
+investigation this document has been tracking since the fourth bug.

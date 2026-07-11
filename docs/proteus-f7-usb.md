@@ -80,17 +80,16 @@ freshly built firmware image that exactly matches this project's running
 binary. See `proteus_f7/usb_trace_notes.md` for the full account, including
 the exact ChibiOS source lines and assertion involved.
 
-## Current limitation
+## TunerStudio protocol confirmed end to end
 
 A real TunerStudio protocol byte (`'Q'`, the plain unframed hello/query
-command) was sent directly over the TCP bridge after the `chSysHalt` fix.
-Firmware no longer halts, and the byte is confirmed reaching the real CDC
-bulk OUT endpoint correctly (`GRXSTSP`/`DOEPINT.XFRC` match exactly). No
-ASCII response has been observed yet, though: firmware goes on to activate
-its SD-card-as-USB-mass-storage endpoint (unrelated to CDC) and then simply
-doesn't touch OTG-FS registers again within the practical capture window
-(tens of seconds to a few minutes, limited by `-vvvv`'s logging overhead
-against real wall-clock time). This looks like firmware's own thread
-scheduling rather than a further modeling bug — every register-level
-interaction observed has matched real firmware behavior exactly — but it
-isn't confirmed end to end yet.
+command) sent over the TCP bridge gets back the real 46-byte signature
+response (e.g. `epicEFI Tera.2026.07.11.proteus_f7.1877407474`) in well
+under a second. Reaching this took a fifth bug fix: the virtual host never
+modeled the USB bus's Start-of-Frame heartbeat (a real host emits one every
+1ms regardless of data activity), which ChibiOS's serial-over-USB driver
+depends on to flush any response shorter than its 64-byte TX buffer — the
+byte was reaching firmware and the response was being computed and queued
+correctly, but nothing ever prompted ChibiOS to actually transmit it. See
+`proteus_f7/usb_trace_notes.md`'s "A fifth bug" section for the full
+source-level account.
