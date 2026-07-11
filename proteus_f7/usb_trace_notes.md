@@ -105,12 +105,69 @@ time rather than purely with retired instruction count — worth keeping in
 mind for any future bring-up work that depends on reaching a specific point
 in firmware execution within a bounded instruction count.
 
-## Bulk endpoints (Task 5 — not discovered; documenting why)
+## Bulk endpoints (Task 5 — resolved from source, not from a live trace)
 
 Task 5's plan called for discovering the real CDC bulk IN/OUT endpoint
-numbers from a live trace and wiring them into `OtgFs::new`. Four capture
-attempts were made (varying connection timing and hold duration, both
-`-vvv` and `-vvvv`), with inconsistent results:
+numbers from a live trace. Four live-capture attempts (varying connection
+timing and hold duration, both `-vvv` and `-vvvv`) did not reach a point
+where firmware activates a non-zero endpoint — see the "Live capture
+attempts" subsection below for what was tried. The numbers were instead
+found directly in the firmware source
+(`C:\Users\Tera\Documents\GitHub\epicefi_fw`, the real build tree used
+earlier this session to produce `epicefi.elf`), which is authoritative and
+didn't require more speculative wall-clock-timed captures:
+
+`firmware/hw_layer/ports/stm32/serial_over_usb/usbcfg.cpp`:
+```c
+#define USBD1_DATA_REQUEST_EP           2
+#define USBD1_DATA_AVAILABLE_EP         2
+#define USBD1_INTERRUPT_REQUEST_EP      3
+```
+
+CDC bulk IN and OUT both use endpoint **2** (USB allows the same endpoint
+number for both directions — DIEPCTL/DOEPCTL are physically separate
+registers per endpoint number, so this isn't a conflict). Endpoint 3 is a
+CDC interrupt-IN notification endpoint, not bulk, and is not wired to the
+TCP bridge. `OtgFs::new` now calls `set_bulk_endpoints(2, 2)` — no config
+option, matching the design's non-goals (firmware's endpoint assignment is
+fixed at compile time).
+
+Endpoints are only enabled once ChibiOS's own `usb_event` callback receives
+`USB_EVENT_CONFIGURED` (`usbInitEndpointI(usbp, USBD1_DATA_REQUEST_EP,
+&cdcDataEpConfig)` in the same file), which its `hal_usb.c` fires from the
+`SET_CONFIGURATION` request handler — i.e. bulk forwarding only becomes
+live once the virtual host's `SET_CONFIGURATION` stage completes.
+
+### Open question found while reading the source
+
+`ChibiOS/os/hal/src/hal_usb.c`'s `_usb_ep0setup` computes the actual
+descriptor transfer size from `usbSetupTransfer`'s `n` argument (18 bytes
+for the observed `GET_DESCRIPTOR(DEVICE)` request — see
+`default_handler`'s `USB_REQ_GET_DESCRIPTOR` case, `usbSetupTransfer(usbp,
+dp->ud_string, dp->ud_size, NULL)` where `dp->ud_size == 18`). But the
+zero-byte `DIEPTSIZ`/`DIEPCTL` arm this project observed and treats as the
+GET_DESCRIPTOR completion (see "Enumeration" above) matches
+`OTGv1/hal_usb_lld.c`'s `usb_lld_start_in`, `isp->txsize == 0` branch
+(`DIEPTSIZ = DIEPTSIZ_PKTCNT(1) | DIEPTSIZ_XFRSIZ(0)`, i.e. `0x00080000` —
+an exact match), not the nonzero-size branch that should carry the real 18
+bytes. Cross-referencing `hal_usb_lld.c`'s ISR dispatch order
+(`usb_lld_serve_interrupt`: OEPINT handling, i.e. `_usb_ep0setup`, runs
+*before* `otg_rxfifo_handler`'s `GRXSTSP` pop, in the same interrupt pass)
+against this project's captured trace order (DOEPINT/STUP read+clear, then
+the zero-byte `DIEPTSIZ`/`DIEPCTL` arm, then `GRXSTSP` finally popped)
+confirms the two match — `_usb_ep0setup` really does run before the SETUP
+bytes are copied out of the shared RX FIFO in this capture. Whether that
+zero-byte transfer is a real ChibiOS priming step this project's virtual
+host should NOT treat as "the descriptor response complete," or whether the
+next capture would show the real 18-byte transfer immediately after, is not
+yet resolved. `advance_virtual_host` currently advances on every EP0 IN
+completion including this one, which may be advancing to `SET_ADDRESS`
+before firmware has actually sent descriptor content — worth a follow-up
+investigation before relying on the full 5-stage enumeration completing
+end to end.
+
+### Live capture attempts
+
 - Connecting a few seconds after boot and holding 5-30s: reached the first
   `GET_DESCRIPTOR` SETUP/response exchange (documented above) but no
   further — bottlenecked by `-vvvv`'s I/O throughput as the log grew past
@@ -128,16 +185,3 @@ attempts were made (varying connection timing and hold duration, both
   wall-clock time without a client ever staying connected long enough to
   matter (the connect script didn't hold the socket open), confirming
   nothing about firmware behavior.
-
-Per this project's non-goal against fabricating unobserved behavior, the
-bulk endpoint numbers are left undiscovered rather than guessed:
-`OtgFs::new` does not call `set_bulk_endpoints`, so `bulk_in_endpoint`/
-`bulk_out_endpoint` stay `None` and bulk forwarding (implemented and unit
-tested in Task 5) simply doesn't activate yet. Discovering the real numbers
-needs either a much longer capture budget, or a lower-overhead technique
-(e.g. driving the emulator under a debugger with breakpoints on `ie[n]`/
-`oe[n]` `DIEPCTL`/`DOEPCTL` writes for `n != 0`, rather than wall-clock-timed
-TCP connects against an ever-growing `-vvvv` log). Task 6's manual
-TunerStudio-style exchange is the next natural point to revisit this, since
-it requires the bulk endpoints to work and will surface the real numbers
-directly.

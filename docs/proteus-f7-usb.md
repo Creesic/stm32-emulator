@@ -57,8 +57,12 @@ The emulator's virtual USB host drives bus reset and endpoint-zero control
 transfers (`GET_DESCRIPTOR`, `SET_ADDRESS`, `SET_CONFIGURATION`,
 `SET_LINE_CODING`, `SET_CONTROL_LINE_STATE`) deterministically, and this has
 been confirmed byte-for-byte against the real firmware's register accesses
-(see `proteus_f7/usb_trace_notes.md`). Bulk IN/OUT forwarding to the TCP
-client is implemented and unit tested but not yet wired to a live-discovered
-endpoint number, so a real TunerStudio-style protocol exchange does not yet
-flow end to end — see usb_trace_notes.md's "Bulk endpoints" section for what
-was tried and why.
+(see `proteus_f7/usb_trace_notes.md`). Bulk IN/OUT forwarding is wired to
+endpoint 2 (the real CDC data endpoint, confirmed from firmware source —
+see usb_trace_notes.md's "Bulk endpoints" section), but whether the virtual
+host's 5-stage control sequence actually reaches "configured" against real
+firmware is not yet confirmed end to end: reading the firmware's own ChibiOS
+USB driver source surfaced an open question about whether this project
+advances past the `GET_DESCRIPTOR` stage prematurely (usb_trace_notes.md's
+"Open question found while reading the source"). A real TunerStudio-style
+protocol exchange has not yet been attempted.

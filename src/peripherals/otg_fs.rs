@@ -125,8 +125,15 @@ impl OtgFs {
                 rx_status: VecDeque::new(),
                 tx_fifo: Default::default(),
                 virtual_host_step: VirtualHostStep::AwaitingDeviceDescriptor,
-                bulk_in_endpoint: None,
-                bulk_out_endpoint: None,
+                // Endpoint 2 for both directions (firmware's CDC_DATA_IF
+                // uses the same endpoint number for IN and OUT, distinguished
+                // by direction, not the endpoint number) — from
+                // firmware/hw_layer/ports/stm32/serial_over_usb/usbcfg.cpp's
+                // USBD1_DATA_REQUEST_EP/USBD1_DATA_AVAILABLE_EP in the
+                // epicefi_fw source tree, not live-captured (see
+                // usb_trace_notes.md's "Bulk endpoints" section).
+                bulk_in_endpoint: Some(2),
+                bulk_out_endpoint: Some(2),
                 pending_bridge_writes: Vec::new(),
             }))
         } else {

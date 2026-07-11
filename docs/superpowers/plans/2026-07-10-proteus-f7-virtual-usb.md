@@ -1059,21 +1059,25 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     Run: `cargo test otg_fs`
     Expected: PASS.
 
-- [x] **Step 5: Discover the real bulk endpoint numbers from firmware — attempted, not completed**
+- [x] **Step 5: Discover the real bulk endpoint numbers from firmware — resolved from source**
 
-    Four live-capture attempts (documented in usb_trace_notes.md's "Bulk
-    endpoints" section) did not reach a point where firmware activates a
-    non-zero `ie[n]`/`oe[n]` endpoint: `-vvvv` captures were I/O-bottlenecked
-    by their own multi-ten-million-line log before firmware got that far,
-    and a very-early-connect `-vvv` capture showed the OTG-FS reset-response
-    burst never happening at all (a separate, not-yet-understood timing
-    sensitivity). Per this project's non-goal against fabricating unobserved
-    behavior, `OtgFs::new` does NOT call `set_bulk_endpoints` — the method
-    exists and is unit tested, but bulk forwarding stays inactive
-    (`bulk_in_endpoint`/`bulk_out_endpoint` are `None`) until a future
-    session discovers the real numbers, most likely via Task 6's manual
-    end-to-end exchange or a debugger-driven capture instead of more
-    wall-clock-timed TCP connects against an ever-growing trace log.
+    Four live-capture attempts (documented in usb_trace_notes.md's "Live
+    capture attempts" subsection) did not reach a point where firmware
+    activates a non-zero `ie[n]`/`oe[n]` endpoint: `-vvvv` captures were
+    I/O-bottlenecked by their own multi-ten-million-line log before firmware
+    got that far, and a very-early-connect `-vvv` capture showed the OTG-FS
+    reset-response burst never happening at all (a separate,
+    not-yet-understood timing sensitivity). Rather than more wall-clock-timed
+    captures, the real numbers were read directly from firmware source
+    (`epicefi_fw/firmware/hw_layer/ports/stm32/serial_over_usb/usbcfg.cpp`):
+    CDC bulk IN and OUT both use endpoint 2 (`USBD1_DATA_REQUEST_EP`/
+    `USBD1_DATA_AVAILABLE_EP`), and endpoint 3 is a non-bulk CDC interrupt-IN
+    notification endpoint. `OtgFs::new` now calls `set_bulk_endpoints(2, 2)`.
+
+    Reading that source also surfaced an open question about whether
+    `advance_virtual_host` advances too early — see usb_trace_notes.md's
+    "Open question found while reading the source" for the trace/source
+    cross-reference. Not fixed in this task; flagged for follow-up.
 
 - [ ] **Step 6: Commit**
 
