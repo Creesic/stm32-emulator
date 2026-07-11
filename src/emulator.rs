@@ -36,13 +36,16 @@ static BUSY_LOOP_REACHED: AtomicBool = AtomicBool::new(false);
 static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 fn initialize_arm_engine(model: CpuModel) -> Result<Unicorn<'static, ()>> {
-    let mut uc = Unicorn::new(Arch::ARM, Mode::MCLASS | Mode::LITTLE_ENDIAN)
+    // MCLASS is deprecated by Unicorn's CPU-model control and overrides the
+    // selected Cortex-M model with Cortex-M33 during CPU initialization.
+    let mut uc = Unicorn::new(Arch::ARM, Mode::THUMB | Mode::LITTLE_ENDIAN)
         .map_err(UniErr)
         .context("Failed to initialize Unicorn instance")?;
     let unicorn_model = match model {
         CpuModel::CortexM4 => ArmCpuModel::CORTEX_M4 as i32,
         CpuModel::CortexM7 => ArmCpuModel::CORTEX_M7 as i32,
     };
+    debug!("Selecting ARM CPU model {:?}", model);
 
     uc.ctl_set_cpu_model(unicorn_model)
         .map_err(UniErr)
@@ -244,7 +247,7 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
                 pc = thumb(pc);
                 continue;
             } else {
-                bail!(e);
+                bail!("{e} at pc=0x{pc:08x}");
             }
         }
 
@@ -292,5 +295,17 @@ mod tests {
             uc.reg_read(RegisterARM::S14).unwrap() as u32,
             4.5_f32.to_bits(),
         );
+    }
+
+    #[test]
+    fn cortex_m7_executes_proteus_vfp_continuation() {
+        let proteus_vfp_continuation = [0xb7, 0xee, 0xc7, 0x7a];
+        let mut uc = initialize_arm_engine(CpuModel::CortexM7).unwrap();
+        uc.mem_map(0x1000, 0x1000, Prot::ALL).unwrap();
+        uc.mem_write(0x1000, &proteus_vfp_continuation).unwrap();
+
+        uc.emu_start(0x1001, 0x1004, 0, 1).unwrap();
+
+        assert_eq!(uc.reg_read(RegisterARM::PC).unwrap(), 0x1004);
     }
 }

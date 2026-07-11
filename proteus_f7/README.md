@@ -12,7 +12,9 @@ Verify reset-handler entry:
 .\verify_boot.ps1
 ```
 
-Verify the Cortex-M7 floating-point boundary before continuing USB work:
+Verify the Cortex-M7 VFP continuation before continuing USB work. This runs
+the VDIV at 0x002397ec and the next VFP instruction at 0x002397f0, stopping at
+0x002397f4:
 
 ```powershell
 .\verify_fpu.ps1

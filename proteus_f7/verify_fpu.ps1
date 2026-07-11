@@ -32,7 +32,7 @@ try {
     $env:CMAKE_POLICY_VERSION_MINIMUM = '3.5'
     $env:CMAKE_GENERATOR = 'Ninja'
     $env:CARGO_TARGET_DIR = $compatibilityTargetDirectory
-    $output = (& cargo run --release --bin stm32-emulator -- config.yaml --stop-addr 0x002397f0 --max-instructions 1000000 --color never 2>&1 | Out-String)
+    $output = (& cargo run --release --bin stm32-emulator -- config.yaml --stop-addr 0x002397f4 --max-instructions 1000000 --color never 2>&1 | Out-String)
     $exitCode = $LASTEXITCODE
 } finally {
     Pop-Location
@@ -51,7 +51,7 @@ if ($output -notmatch 'Stop address reached, stopping') {
 }
 
 if ($output -match 'INSN_INVALID') {
-    throw "Unicorn rejected the Proteus VDIV instruction:$([Environment]::NewLine)$output"
+    throw "Unicorn rejected the Proteus VFP continuation at 0x002397f0:$([Environment]::NewLine)$output"
 }
 
-Write-Host 'Proteus F7 FPU boundary verified.'
+Write-Host 'Proteus F7 VFP continuation verified.'
