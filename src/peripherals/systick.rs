@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::system::System;
 use super::Peripheral;
+use crate::system::System;
 
 #[derive(Default)]
 pub struct SysTick {
@@ -45,9 +45,13 @@ impl Peripheral for SysTick {
             0x0004 => self.reload,
             0x0008 => {
                 self.val_toggle = !self.val_toggle;
-                if self.val_toggle { 0 } else { self.reload/2 }
+                if self.val_toggle {
+                    0
+                } else {
+                    self.reload / 2
+                }
             }
-            _ => 0
+            _ => 0,
         }
     }
 

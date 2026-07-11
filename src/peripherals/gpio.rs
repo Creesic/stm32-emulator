@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::system::System;
 use super::Peripheral;
+use crate::system::System;
 
 use regex::Regex;
 
@@ -87,24 +87,33 @@ impl Gpio {
         if let Some(block) = name.strip_prefix("GPIO") {
             let port_letter = block.chars().next().unwrap();
             let port = GpioPorts::port_index(port_letter);
-            Some(Box::new(Self { port_letter, port, ..Self::default() }))
+            Some(Box::new(Self {
+                port_letter,
+                port,
+                ..Self::default()
+            }))
         } else {
             None
         }
     }
 
     // f(port, values)
-    fn iter_port_reg_changes(old_value: u32, new_value: u32, stride: u8, mut f: impl FnMut(u8, u8)) {
+    fn iter_port_reg_changes(
+        old_value: u32,
+        new_value: u32,
+        stride: u8,
+        mut f: impl FnMut(u8, u8),
+    ) {
         let mut changes = old_value ^ new_value;
         let stride_mask = 0xFF >> (8 - stride);
         while changes != 0 {
             let right_most_bit = changes.trailing_zeros() as u8;
             let pin = right_most_bit / stride;
             if pin <= 16 {
-                let v = (new_value >> (pin*stride)) as u8 & stride_mask;
+                let v = (new_value >> (pin * stride)) as u8 & stride_mask;
                 f(pin, v);
             }
-            changes &= !(stride_mask as u32) << (pin*stride);
+            changes &= !(stride_mask as u32) << (pin * stride);
         }
     }
 
@@ -230,7 +239,7 @@ impl Peripheral for Gpio {
             }
             0x0024 => {
                 Self::iter_port_reg_changes(self.afrh, value, 4, |pin, v| {
-                    trace!("{} alternate_cfg=AF{}", self.port_str(pin+8), v);
+                    trace!("{} alternate_cfg=AF{}", self.port_str(pin + 8), v);
                 });
                 self.afrh = value;
             }

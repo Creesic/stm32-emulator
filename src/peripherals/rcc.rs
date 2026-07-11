@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::system::System;
 use super::Peripheral;
+use crate::system::System;
 
 pub struct Rcc {
     cfgr: u32,
@@ -30,7 +30,6 @@ impl Rcc {
     }
 }
 
-
 impl Peripheral for Rcc {
     fn read(&mut self, _sys: &System, offset: u32) -> u32 {
         match offset {
@@ -45,7 +44,7 @@ impl Peripheral for Rcc {
                 self.cfgr
             }
             0x0074 => self.csr,
-            _ => 0
+            _ => 0,
         }
     }
 

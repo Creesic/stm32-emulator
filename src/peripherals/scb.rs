@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use super::{nvic::irq, Peripheral};
 use crate::system::System;
-use super::{Peripheral, nvic::irq};
 
 #[derive(Default)]
 pub struct Scb {
+    cpacr: u32,
 }
 
 impl Scb {
@@ -15,11 +16,22 @@ impl Scb {
             None
         }
     }
+
+    fn write_cpacr(&mut self, value: u32) {
+        self.cpacr = value;
+    }
+
+    fn read_cpacr(&self) -> u32 {
+        self.cpacr
+    }
 }
 
 impl Peripheral for Scb {
-    fn read(&mut self, _sys: &System, _offset: u32) -> u32 {
-        0
+    fn read(&mut self, _sys: &System, offset: u32) -> u32 {
+        match offset {
+            0x0088 => self.read_cpacr(),
+            _ => 0,
+        }
     }
 
     fn write(&mut self, sys: &System, offset: u32, value: u32) {
@@ -35,7 +47,21 @@ impl Peripheral for Scb {
                     sys.p.nvic.borrow_mut().set_intr_pending(irq::PENDSV);
                 }
             }
+            0x0088 => self.write_cpacr(value),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Scb;
+
+    #[test]
+    fn cpacr_retains_the_firmware_fpu_enable_value() {
+        let mut scb = Scb::default();
+        scb.write_cpacr(0x00f0_0000);
+
+        assert_eq!(scb.read_cpacr(), 0x00f0_0000);
     }
 }

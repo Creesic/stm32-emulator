@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-unicorn-engine = "2.0.0-rc3"
+unicorn-engine = "2.1.5"
 clap = { version = "3.1", features = ["derive"] }
 clap-num = "1"
 anyhow = "1"
@@ -14,6 +14,11 @@ bytes = "1"
 serde = { version = "1.0", features = ["derive"]}
 serde_yaml = "0.8"
 tempfile = "3"
+imgui = { version = "0.12", features = ["docking"] }
+imgui-winit-support = "0.13"
+imgui-glium-renderer = "0.13"
+glium = { version = "0.35", features = ["glutin_backend", "simple_window_builder"] }
+rfd = "0.15"
 
 svd-parser = "0.13"
 

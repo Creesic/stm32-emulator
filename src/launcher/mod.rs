@@ -7,6 +7,7 @@ use serde::Serialize;
 
 pub mod process;
 pub mod registry;
+pub mod ui_state;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EmulationSupport {
@@ -41,6 +42,16 @@ impl KnownVariant {
             display_name: "Unsupported board",
             mcu: None,
             support: EmulationSupport::Unsupported,
+            profile: None,
+        }
+    }
+
+    pub fn manual() -> Self {
+        Self {
+            id: "manual",
+            display_name: "Manual profile",
+            mcu: None,
+            support: EmulationSupport::Runnable,
             profile: None,
         }
     }
@@ -94,6 +105,37 @@ impl ResolvedProfile {
             svd,
             regions: template.regions.to_vec(),
         })
+    }
+
+    pub fn manual(
+        firmware: PathBuf,
+        svd: PathBuf,
+        vector_table: u32,
+        flash_start: u32,
+        flash_size: u32,
+        ram_start: u32,
+        ram_size: u32,
+    ) -> Self {
+        Self {
+            variant: KnownVariant::manual(),
+            vector_table,
+            firmware,
+            svd,
+            regions: vec![
+                MemoryRegion {
+                    name: "Manual-FLASH",
+                    start: flash_start,
+                    size: flash_size,
+                    load_firmware: true,
+                },
+                MemoryRegion {
+                    name: "Manual-RAM",
+                    start: ram_start,
+                    size: ram_size,
+                    load_firmware: false,
+                },
+            ],
+        }
     }
 
     pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {

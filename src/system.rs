@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::{rc::Rc, cell::RefCell};
-use unicorn_engine::{Unicorn, unicorn_const::Permission};
+use unicorn_engine::{Unicorn, unicorn_const::Prot};
 use crate::{peripherals::{Peripherals, gpio::GpioPorts}, ext_devices::ExtDevices, util::{UniErr, round_up, self}, config::Config, framebuffers::Framebuffers};
 use anyhow::{Context as _, Result};
 use svd_parser::svd::Device as SvdDevice;
@@ -45,7 +45,7 @@ impl<'a, 'b> System<'a, 'b> {
                 }
             };
 
-            self.uc.borrow_mut().mmio_map(start as u64, (end-start) as usize, Some(read_cb), Some(write_cb))
+            self.uc.borrow_mut().mmio_map(start as u64, (end - start) as u64, Some(read_cb), Some(write_cb))
                 .map_err(UniErr).context("Failed to mmio_map()")?;
         }
 
@@ -59,7 +59,7 @@ fn load_memory_regions(uc: &mut Unicorn<()>, config: &Config) -> Result<()> {
             region.start, region.size, region.name);
 
         let size = round_up(region.size as usize, 4096); // magic number is from mem_map() documentation
-        uc.mem_map(region.start.into(), size, Permission::ALL)
+        uc.mem_map(region.start.into(), size as u64, Prot::ALL)
             .map_err(UniErr).with_context(||
                 format!("Memory mapping of peripheral={} failed", region.name))?;
 

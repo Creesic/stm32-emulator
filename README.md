@@ -44,7 +44,7 @@ working, and I was in a hurry).
 ```
 $ git clone https://github.com/nviennot/stm32-emulator.git
 $ cd stm32-emulator/saturn
-$ cargo run --release -- config.yaml -v
+$ cargo run --release --bin stm32-emulator -- config.yaml -v
 ```
 
 ### The output
@@ -98,7 +98,7 @@ or IDA Pro.
 ```
 $ git clone https://github.com/nviennot/stm32-emulator.git
 $ cd stm32-emulator/monox
-$ cargo run --release -- config.yaml -v
+$ cargo run --release --bin stm32-emulator -- config.yaml -v
 ```
 
 ---

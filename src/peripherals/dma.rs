@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::util::UniErr;
-use crate::system::System;
 use super::Peripheral;
 use super::Peripherals;
+use crate::system::System;
+use crate::util::UniErr;
 
 #[derive(Default)]
 pub struct Dma {
@@ -15,7 +15,10 @@ impl Dma {
     pub fn new(name: &str) -> Option<Box<dyn Peripheral>> {
         if name.starts_with("DMA") {
             let name = name.to_string();
-            Some(Box::new(Self { name, ..Self::default() }))
+            Some(Box::new(Self {
+                name,
+                ..Self::default()
+            }))
         } else {
             None
         }
@@ -26,7 +29,7 @@ impl Peripheral for Dma {
     fn read(&mut self, sys: &System, offset: u32) -> u32 {
         match Access::from_offset(offset) {
             Access::StreamReg(i, offset) => self.streams[i].read(&self.name, sys, offset),
-            _ => 0
+            _ => 0,
         }
     }
 
@@ -97,25 +100,42 @@ impl Stream {
             Dir::Read => (peri_addr, data_addr),
             Dir::Write => (data_addr, peri_addr),
             Dir::MemCopy => (peri_addr, data_addr),
-            Dir::Invalid => (0,0),
+            Dir::Invalid => (0, 0),
         };
 
         if log::log_enabled!(log::Level::Debug) {
             let peri_desc = sys.p.addr_desc(peri_addr);
-            debug!("{} xfer initiated channel={} peri_{} dir={:?} addr=0x{:08x} size={}",
-                name, self.channel(), peri_desc, dir, data_addr, size);
+            debug!(
+                "{} xfer initiated channel={} peri_{} dir={:?} addr=0x{:08x} size={}",
+                name,
+                self.channel(),
+                peri_desc,
+                dir,
+                data_addr,
+                size
+            );
         }
 
         let buf = match dir {
-            Dir::Read => {
-                peri.map(|p| p.peripheral.borrow_mut().read_dma(sys, peri_addr-p.start, size))
-            }
-            Dir::Write | Dir::MemCopy => {
-                sys.uc.borrow().mem_read_as_vec(src.into(), size)
-                    .map_err(|e| warn!("DMA read failed addr=0x{:08x} size={} e={}", src, size, UniErr(e)))
-                    .map(|v| v.into())
-                    .ok()
-            }
+            Dir::Read => peri.map(|p| {
+                p.peripheral
+                    .borrow_mut()
+                    .read_dma(sys, peri_addr - p.start, size)
+            }),
+            Dir::Write | Dir::MemCopy => sys
+                .uc
+                .borrow()
+                .mem_read_as_vec(src.into(), size)
+                .map_err(|e| {
+                    warn!(
+                        "DMA read failed addr=0x{:08x} size={} e={}",
+                        src,
+                        size,
+                        UniErr(e)
+                    )
+                })
+                .map(|v| v.into())
+                .ok(),
             Dir::Invalid => Some(vec![].into()),
         };
 
@@ -129,11 +149,24 @@ impl Stream {
 
         match dir {
             Dir::Write => {
-                peri.map(|p| p.peripheral.borrow_mut().write_dma(sys, peri_addr-p.start, buf));
+                peri.map(|p| {
+                    p.peripheral
+                        .borrow_mut()
+                        .write_dma(sys, peri_addr - p.start, buf)
+                });
             }
             Dir::Read | Dir::MemCopy => {
-                if let Err(e) = sys.uc.borrow_mut().mem_write(dst.into(), buf.make_contiguous()) {
-                    warn!("DMA read failed addr=0x{:08x} size={} e={}", dst, size, UniErr(e));
+                if let Err(e) = sys
+                    .uc
+                    .borrow_mut()
+                    .mem_write(dst.into(), buf.make_contiguous())
+                {
+                    warn!(
+                        "DMA read failed addr=0x{:08x} size={} e={}",
+                        dst,
+                        size,
+                        UniErr(e)
+                    );
                 }
             }
             Dir::Invalid => {}
@@ -164,7 +197,7 @@ impl Stream {
             0x000c => self.m0ar,
             0x0010 => self.m1ar,
             0x0014 => self.fcr,
-            _ => 0
+            _ => 0,
         }
     }
 
@@ -183,11 +216,21 @@ impl Stream {
                     self.next_cr = Some(value);
                 }
             }
-            0x0004 => { self.ndtr = value & 0xFFFF; }
-            0x0008 => { self.par = value; }
-            0x000c => { self.m0ar = value; }
-            0x0010 => { self.m1ar = value; }
-            0x0014 => { self.fcr = value; }
+            0x0004 => {
+                self.ndtr = value & 0xFFFF;
+            }
+            0x0008 => {
+                self.par = value;
+            }
+            0x000c => {
+                self.m0ar = value;
+            }
+            0x0010 => {
+                self.m1ar = value;
+            }
+            0x0014 => {
+                self.fcr = value;
+            }
             _ => {}
         }
     }
@@ -216,10 +259,7 @@ impl Access {
             let start = 0x10;
 
             let offset = offset - start;
-            Access::StreamReg(
-                (offset / stride) as usize,
-                offset % stride
-            )
+            Access::StreamReg((offset / stride) as usize, offset % stride)
         }
     }
 }

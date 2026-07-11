@@ -1,4 +1,5 @@
 cpu:
+  model: cortex-m4
   svd: stm32f407.svd
   vector_table: 0x08008000
   #id: 0x1234_5678_BABE_1234_5678_BABE

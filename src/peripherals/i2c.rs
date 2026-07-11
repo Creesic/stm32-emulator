@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::system::System;
 use super::Peripheral;
+use crate::system::System;
 
 #[derive(Default)]
 pub struct I2c {
@@ -13,7 +13,10 @@ impl I2c {
     pub fn new(name: &str) -> Option<Box<dyn Peripheral>> {
         if name.starts_with("I2C") {
             let name = name.to_string();
-            Some(Box::new(Self { name, ..I2c::default() }))
+            Some(Box::new(Self {
+                name,
+                ..I2c::default()
+            }))
         } else {
             None
         }
@@ -31,14 +34,22 @@ impl Peripheral for I2c {
             0x0014 => {
                 // SR1
                 self.toggle = (self.toggle + 1) % 5;
-                if self.toggle & 2 != 0 { 0xFFFFFFFF } else { 0 }
+                if self.toggle & 2 != 0 {
+                    0xFFFFFFFF
+                } else {
+                    0
+                }
             }
             0x0018 => {
                 // SR2
                 self.toggle = (self.toggle + 1) % 5;
-                if self.toggle & 1  != 0{ 0xFFFFFFFF } else { 0 }
+                if self.toggle & 1 != 0 {
+                    0xFFFFFFFF
+                } else {
+                    0
+                }
             }
-            _ => 0
+            _ => 0,
         }
     }
 

@@ -2,8 +2,8 @@
 
 use std::{mem::MaybeUninit, sync::atomic::{AtomicU64, Ordering, AtomicBool}, cell::RefCell};
 use svd_parser::svd::Device as SvdDevice;
-use unicorn_engine::{unicorn_const::{Arch, Mode, HookType, MemType}, Unicorn, RegisterARM};
-use crate::{config::Config, util::UniErr, Args, system::System, framebuffers::sdl_engine::{PUMP_EVENT_INST_INTERVAL, SDL}};
+use unicorn_engine::{unicorn_const::{Arch, Mode, HookType, MemType}, ArmCpuModel, Unicorn, RegisterARM};
+use crate::{config::{Config, CpuModel}, util::UniErr, Args, system::System, framebuffers::sdl_engine::{PUMP_EVENT_INST_INTERVAL, SDL}};
 use anyhow::{Context as _, Result, bail};
 use capstone::prelude::*;
 
@@ -34,6 +34,22 @@ pub static NUM_INSTRUCTIONS: AtomicU64 = AtomicU64::new(0);
 static CONTINUE_EXECUTION: AtomicBool = AtomicBool::new(false);
 static BUSY_LOOP_REACHED: AtomicBool = AtomicBool::new(false);
 static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+fn initialize_arm_engine(model: CpuModel) -> Result<Unicorn<'static, ()>> {
+    let mut uc = Unicorn::new(Arch::ARM, Mode::MCLASS | Mode::LITTLE_ENDIAN)
+        .map_err(UniErr)
+        .context("Failed to initialize Unicorn instance")?;
+    let unicorn_model = match model {
+        CpuModel::CortexM4 => ArmCpuModel::CORTEX_M4 as i32,
+        CpuModel::CortexM7 => ArmCpuModel::CORTEX_M7 as i32,
+    };
+
+    uc.ctl_set_cpu_model(unicorn_model)
+        .map_err(UniErr)
+        .context("Failed to select configured ARM CPU model")?;
+
+    Ok(uc)
+}
 
 fn disassemble_instruction(diassembler: &Capstone, uc: &Unicorn<()>, pc: u64) -> String {
     let mut instr = [0; 4];
@@ -73,8 +89,7 @@ pub fn dump_stack(uc: &mut Unicorn<()>, count: usize) {
 }
 
 pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result<()> {
-    let mut uc = Unicorn::new(Arch::ARM, Mode::MCLASS | Mode::LITTLE_ENDIAN)
-        .map_err(UniErr).context("Failed to initialize Unicorn instance")?;
+    let mut uc = initialize_arm_engine(config.cpu.model)?;
 
     let vector_table_addr = config.cpu.vector_table;
 
@@ -252,4 +267,30 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::CpuModel;
+    use unicorn_engine::unicorn_const::Prot;
+
+    #[test]
+    fn cortex_m7_executes_proteus_vdiv() {
+        let vdiv_f32_s14_s0_s1 = [0x80, 0xee, 0x20, 0x7a];
+        let mut uc = initialize_arm_engine(CpuModel::CortexM7).unwrap();
+        uc.mem_map(0x1000, 0x1000, Prot::ALL).unwrap();
+        uc.mem_write(0x1000, &vdiv_f32_s14_s0_s1).unwrap();
+        uc.reg_write(RegisterARM::S0, 9.0_f32.to_bits() as u64)
+            .unwrap();
+        uc.reg_write(RegisterARM::S1, 2.0_f32.to_bits() as u64)
+            .unwrap();
+
+        uc.emu_start(0x1001, 0x1004, 0, 1).unwrap();
+
+        assert_eq!(
+            uc.reg_read(RegisterARM::S14).unwrap() as u32,
+            4.5_f32.to_bits(),
+        );
+    }
 }

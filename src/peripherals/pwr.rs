@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::system::System;
 use super::Peripheral;
+use crate::system::System;
 
 pub struct Pwr {
     cr1: u32,

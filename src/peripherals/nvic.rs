@@ -4,8 +4,8 @@ use std::sync::atomic::Ordering;
 
 use unicorn_engine::{RegisterARM, Unicorn};
 
-use crate::system::System;
 use super::Peripheral;
+use crate::system::System;
 
 #[derive(Default)]
 pub struct Nvic {
@@ -58,7 +58,7 @@ impl Nvic {
         }
     }
 
-   fn are_interrupts_disabled(sys: &System) -> bool {
+    fn are_interrupts_disabled(sys: &System) -> bool {
         let primask = sys.uc.borrow().reg_read(RegisterARM::PRIMASK).unwrap();
         primask != 0
     }
@@ -77,9 +77,9 @@ impl Nvic {
 
     fn read_vector_addr(sys: &System, vector_table_addr: u32, irq: i32) -> u32 {
         // 4 because of ptr size
-        let vaddr = vector_table_addr + 4*(IRQ_OFFSET + irq) as u32;
+        let vaddr = vector_table_addr + 4 * (IRQ_OFFSET + irq) as u32;
 
-        let mut vector = [0,0,0,0];
+        let mut vector = [0, 0, 0, 0];
         sys.uc.borrow().mem_read(vaddr as u64, &mut vector).unwrap();
         u32::from_le_bytes(vector)
     }
@@ -98,8 +98,13 @@ impl Nvic {
         let spsel = control_reg & (1 << 1) != 0;
         let fpca = control_reg & (2 << 1) != 0;
 
-        trace!("Running interrupt irq={} spsel={} fpca={} vector={:#08x}",
-            irq, spsel, fpca, vector);
+        trace!(
+            "Running interrupt irq={} spsel={} fpca={} vector={:#08x}",
+            irq,
+            spsel,
+            fpca,
+            vector
+        );
 
         Self::push_regs(&mut uc, spsel, fpca);
 
@@ -114,8 +119,12 @@ impl Nvic {
 
         // Right now, we don't supposed nested interrupts.
         let mut lr: u32 = 0xFFFF_FFE9;
-        if spsel { lr |= 0b0000_0100; }
-        if !fpca { lr |= 0b0001_0000; } // Yes, no fpca means the bit is set
+        if spsel {
+            lr |= 0b0000_0100;
+        }
+        if !fpca {
+            lr |= 0b0001_0000;
+        } // Yes, no fpca means the bit is set
         uc.reg_write(RegisterARM::LR, lr.into()).unwrap();
 
         uc.reg_write(RegisterARM::IPSR, irq as u64).unwrap();
@@ -134,14 +143,22 @@ impl Nvic {
 
             Self::pop_regs(&mut uc, spsel, fpca);
 
-            trace!("Return from interrupt spsel={} fpca={} pc=0x{:08x}",
-                spsel, fpca, uc.reg_read(RegisterARM::PC).unwrap());
+            trace!(
+                "Return from interrupt spsel={} fpca={} pc=0x{:08x}",
+                spsel,
+                fpca,
+                uc.reg_read(RegisterARM::PC).unwrap()
+            );
 
             // SPSEL, bit[1], 0 means we use MSP, 1 means we use PSP.
             // FPCA, bit[2], if the processor includes the FP extension.
             let mut control_reg = 0;
-            if spsel { control_reg |= 1 << 1; }
-            if fpca { control_reg |= 2 << 1; }
+            if spsel {
+                control_reg |= 1 << 1;
+            }
+            if fpca {
+                control_reg |= 2 << 1;
+            }
             uc.reg_write(RegisterARM::CONTROL, control_reg).unwrap();
         } else {
             let control_reg = uc.reg_read(RegisterARM::CONTROL).unwrap();
@@ -149,8 +166,12 @@ impl Nvic {
             let fpca = control_reg & (2 << 1) != 0;
             Self::pop_regs(&mut uc, spsel, fpca);
 
-            trace!("Return from interrupt spsel={} fpca={} pc=0x{:08x} -- LR was not right",
-                spsel, fpca, uc.reg_read(RegisterARM::PC).unwrap());
+            trace!(
+                "Return from interrupt spsel={} fpca={} pc=0x{:08x} -- LR was not right",
+                spsel,
+                fpca,
+                uc.reg_read(RegisterARM::PC).unwrap()
+            );
         }
 
         self.in_interrupt = false;
@@ -188,14 +209,19 @@ impl Nvic {
     ];
 
     fn push_regs(uc: &mut Unicorn<()>, spsel: bool, fpca: bool) {
-        let sp_reg = if spsel { RegisterARM::PSP } else { RegisterARM::MSP };
+        let sp_reg = if spsel {
+            RegisterARM::PSP
+        } else {
+            RegisterARM::MSP
+        };
         let mut sp = uc.reg_read(sp_reg).unwrap();
 
         let mut push_reg = |reg| {
             let v = uc.reg_read(reg).unwrap() as u32;
             //trace!("push sp=0x{:08x} {:5?}=0x{:08x}", sp, reg, v);
             sp -= 4;
-            uc.mem_write(sp, &v.to_le_bytes()).expect("Invalid SP pointer during interrupt");
+            uc.mem_write(sp, &v.to_le_bytes())
+                .expect("Invalid SP pointer during interrupt");
         };
 
         if fpca {
@@ -210,12 +236,17 @@ impl Nvic {
     }
 
     fn pop_regs(uc: &mut Unicorn<()>, spsel: bool, fpca: bool) {
-        let sp_reg = if spsel { RegisterARM::PSP } else { RegisterARM::MSP };
+        let sp_reg = if spsel {
+            RegisterARM::PSP
+        } else {
+            RegisterARM::MSP
+        };
         let mut sp = uc.reg_read(sp_reg).unwrap();
 
         let mut pop_reg = |reg| {
-            let mut v = [0,0,0,0];
-            uc.mem_read(sp, &mut v).expect("Invalid SP pointer during interrupt return");
+            let mut v = [0, 0, 0, 0];
+            uc.mem_read(sp, &mut v)
+                .expect("Invalid SP pointer during interrupt return");
             let v = u32::from_le_bytes(v);
             //trace!("pop sp=0x{:08x} {:5?}=0x{:08x}", sp, reg, v);
             sp += 4;
@@ -239,8 +270,7 @@ impl Peripheral for Nvic {
         0
     }
 
-    fn write(&mut self, _sys: &System, _offset: u32, _value: u32) {
-    }
+    fn write(&mut self, _sys: &System, _offset: u32, _value: u32) {}
 }
 
 /// The next part is glue. Maybe we could have a better architecture.
@@ -266,7 +296,6 @@ impl Peripheral for NvicWrapper {
         sys.p.nvic.borrow_mut().write(sys, offset, value)
     }
 }
-
 
 /*
 0xE000E100 B  REGISTER ISER0 (rw): Interrupt Set-Enable Register

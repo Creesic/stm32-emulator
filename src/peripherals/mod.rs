@@ -1,36 +1,43 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-pub mod rcc;
-pub mod pwr;
-pub mod spi;
-pub mod usart;
-pub mod systick;
-pub mod gpio;
 pub mod dma;
+pub mod flash;
 pub mod fsmc;
+pub mod gpio;
 pub mod i2c;
 pub mod nvic;
+pub mod pwr;
+pub mod rcc;
 pub mod scb;
+pub mod spi;
 pub mod sw_spi;
+pub mod systick;
+pub mod tim11;
+pub mod usart;
 
-use rcc::*;
-use pwr::*;
-use serde::Deserialize;
-use spi::*;
-use usart::*;
-use systick::*;
-use gpio::*;
 use dma::*;
+use flash::*;
 use fsmc::*;
+use gpio::*;
 use i2c::*;
 use nvic::*;
+use pwr::*;
+use rcc::*;
 use scb::*;
+use serde::Deserialize;
+use spi::*;
 use sw_spi::*;
+use systick::*;
+use tim11::*;
+use usart::*;
 
-use std::{collections::{BTreeMap, VecDeque, HashMap}, cell::RefCell};
-use svd_parser::svd::{RegisterInfo, Device as SvdDevice};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashMap, VecDeque},
+};
+use svd_parser::svd::{Device as SvdDevice, RegisterInfo};
 
-use crate::{system::System, ext_devices::ExtDevices};
+use crate::{ext_devices::ExtDevices, system::System};
 
 #[derive(Debug, Deserialize, Default)]
 pub struct PeripheralsConfig {
@@ -62,6 +69,31 @@ mod tests {
             0x0001_0000
         );
     }
+
+    #[test]
+    fn flash_acr_retains_latency_and_cache_bits() {
+        assert_eq!(
+            crate::peripherals::flash::Flash::acr_after_write(0x0000_0707),
+            0x0000_0707
+        );
+    }
+
+    #[test]
+    fn tim11_reports_capture_ready_after_observed_configuration() {
+        assert_eq!(
+            crate::peripherals::tim11::Tim11::sr_after_setup(0x0000_0001, 0x0000_0001, 0x0000_0001)
+                & 0x0000_0002,
+            0x0000_0002
+        );
+    }
+
+    #[test]
+    fn scb_model_range_includes_cpacr() {
+        assert_eq!(
+            super::Peripherals::modeled_range("SCB", 0xe000_ed00, 4),
+            (0xe000_ed00, 0xe000_ed8f),
+        );
+    }
 }
 
 pub struct PeripheralSlot<T> {
@@ -72,43 +104,58 @@ pub struct PeripheralSlot<T> {
 
 impl Peripherals {
     // start - end regions
-    pub const MEMORY_MAPS: [(u32, u32); 2] = [
-        (0x4000_0000, 0xB000_0000),
-        (0xE000_0000, 0xE100_0000),
-    ];
+    pub const MEMORY_MAPS: [(u32, u32); 2] =
+        [(0x4000_0000, 0xB000_0000), (0xE000_0000, 0xE100_0000)];
 
-    pub fn register_peripheral(&mut self, name: String, base: u32, registers: &[RegisterInfo], ext_devices: &ExtDevices) {
+    pub fn register_peripheral(
+        &mut self,
+        name: String,
+        base: u32,
+        registers: &[RegisterInfo],
+        ext_devices: &ExtDevices,
+    ) {
         let p = GenericPeripheral::new(name.clone(), registers);
 
-        let (start, end) = (base, base+p.size());
+        let (start, end) = (base, base + p.size());
 
-        trace!("Peripheral start=0x{:08x} end=0x{:08x} name={}", start, end, p.name());
+        trace!(
+            "Peripheral start=0x{:08x} end=0x{:08x} name={}",
+            start,
+            end,
+            p.name()
+        );
 
-        self.debug_peripherals.push(PeripheralSlot { start, end, peripheral: p });
+        self.debug_peripherals.push(PeripheralSlot {
+            start,
+            end,
+            peripheral: p,
+        });
 
         // The debug peripheral is just for to print registers right now. So we
         // change the (start, end) only for the real peripheral.
-        let (start, end) = match name.as_str() {
-            "FSMC" => (0x6000_0000, 0xA000_1000),
-            _ => (start, end),
-        };
+        let (start, end) = Self::modeled_range(&name, start, end - start);
 
         let p = None
             .or_else(|| NvicWrapper::new(&name))
-            .or_else(||     SysTick::new(&name))
-            .or_else(||         Scb::new(&name))
-            .or_else(||        Gpio::new(&name))
-            .or_else(||       Usart::new(&name, ext_devices))
-            .or_else(||        Fsmc::new(&name, ext_devices))
-            .or_else(||         Rcc::new(&name))
-            .or_else(||         Pwr::new(&name))
-            .or_else(||         I2c::new(&name))
-            .or_else(||         Dma::new(&name))
-            .or_else(||         Spi::new(&name, ext_devices))
-        ;
+            .or_else(|| SysTick::new(&name))
+            .or_else(|| Scb::new(&name))
+            .or_else(|| Gpio::new(&name))
+            .or_else(|| Usart::new(&name, ext_devices))
+            .or_else(|| Fsmc::new(&name, ext_devices))
+            .or_else(|| Rcc::new(&name))
+            .or_else(|| Pwr::new(&name))
+            .or_else(|| Flash::new(&name))
+            .or_else(|| Tim11::new(&name))
+            .or_else(|| I2c::new(&name))
+            .or_else(|| Dma::new(&name))
+            .or_else(|| Spi::new(&name, ext_devices));
 
         if let Some(p) = p {
-            self.peripherals.push(PeripheralSlot { start, end, peripheral: RefCell::new(p) });
+            self.peripherals.push(PeripheralSlot {
+                start,
+                end,
+                peripheral: RefCell::new(p),
+            });
         }
     }
 
@@ -124,26 +171,41 @@ impl Peripherals {
             b.next();
 
             for (p1, p2) in a.zip(b) {
-                assert!(p1.end < p2.start, "Overlapping register blocks between {} and {}",
-                    p1.peripheral.name(), p2.peripheral.name());
+                assert!(
+                    p1.end < p2.start,
+                    "Overlapping register blocks between {} and {}",
+                    p1.peripheral.name(),
+                    p2.peripheral.name()
+                );
             }
         }
     }
 
-    pub fn from_svd(mut svd_device: SvdDevice, config: PeripheralsConfig, gpio: GpioPorts, ext_devices: &ExtDevices) -> Self {
-        let mut peripherals = Self { gpio: RefCell::new(gpio), .. Peripherals::default() };
+    pub fn from_svd(
+        mut svd_device: SvdDevice,
+        config: PeripheralsConfig,
+        gpio: GpioPorts,
+        ext_devices: &ExtDevices,
+    ) -> Self {
+        let mut peripherals = Self {
+            gpio: RefCell::new(gpio),
+            ..Peripherals::default()
+        };
 
         svd_device.peripherals.sort_by_key(|f| f.base_address);
-        let svd_peripherals = svd_device.peripherals.iter()
+        let svd_peripherals = svd_device
+            .peripherals
+            .iter()
             .map(|d| (d.name.to_string(), d))
-            .collect::<HashMap<_,_>>();
+            .collect::<HashMap<_, _>>();
 
         for p in &svd_device.peripherals {
             let name = &p.name;
             let base = p.base_address;
 
             let p = if let Some(derived_from) = p.derived_from.as_ref() {
-                svd_peripherals.get(derived_from)
+                svd_peripherals
+                    .get(derived_from)
                     .as_ref()
                     .unwrap_or_else(|| panic!("Cannot find peripheral {}", derived_from))
             } else {
@@ -156,13 +218,22 @@ impl Peripherals {
 
             if crate::verbose() >= 3 {
                 for r in &regs {
-                    trace!("p={} addr=0x{:08x} reg_name={}", p.name, p.base_address as u32 + r.address_offset, r.name);
+                    trace!(
+                        "p={} addr=0x{:08x} reg_name={}",
+                        p.name,
+                        p.base_address as u32 + r.address_offset,
+                        r.name
+                    );
                 }
             }
         }
 
         for sw_spi_config in config.software_spi.unwrap_or_default() {
-            SoftwareSpi::register(sw_spi_config, &mut peripherals.gpio.borrow_mut(), ext_devices);
+            SoftwareSpi::register(
+                sw_spi_config,
+                &mut peripherals.gpio.borrow_mut(),
+                ext_devices,
+            );
         }
 
         peripherals.finish_registration();
@@ -171,16 +242,35 @@ impl Peripherals {
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    pub fn get_peripheral<T>(peripherals: &Vec<PeripheralSlot<T>>, addr: u32) -> Option<&PeripheralSlot<T>> {
-        let index = peripherals.binary_search_by_key(&addr, |p| p.start)
+    pub fn get_peripheral<T>(
+        peripherals: &Vec<PeripheralSlot<T>>,
+        addr: u32,
+    ) -> Option<&PeripheralSlot<T>> {
+        let index = peripherals
+            .binary_search_by_key(&addr, |p| p.start)
             .map_or_else(|e| e.checked_sub(1), |v| Some(v));
 
-        index.map(|i| peripherals.get(i).filter(|p| addr <= p.end)).flatten()
+        index
+            .map(|i| peripherals.get(i).filter(|p| addr <= p.end))
+            .flatten()
+    }
+
+    pub fn modeled_range(name: &str, base: u32, size: u32) -> (u32, u32) {
+        match name {
+            "FSMC" => (0x6000_0000, 0xA000_1000),
+            "SCB" => (base, base + 0x008f),
+            _ => (base, base + size),
+        }
     }
 
     pub fn addr_desc(&self, addr: u32) -> String {
         if let Some(p) = Self::get_peripheral(&self.debug_peripherals, addr) {
-            format!("addr=0x{:08x} peri={} {}", addr, p.peripheral.name, p.peripheral.reg_name(addr - p.start))
+            format!(
+                "addr=0x{:08x} peri={} {}",
+                addr,
+                p.peripheral.name,
+                p.peripheral.reg_name(addr - p.start)
+            )
         } else {
             format!("addr=0x{:08x} peri=????", addr)
         }
@@ -190,7 +280,7 @@ impl Peripherals {
         if (0x4200_0000..0x4400_0000).contains(&addr) {
             //let old_addr = addr;
             let bit_number = (addr % 32) / 4;
-            let addr = 0x4000_0000 + (addr - 0x4200_0000)/32;
+            let addr = 0x4000_0000 + (addr - 0x4200_0000) / 32;
             //trace!("bitbanding: 0x{:08x} -> addr=0x{:08x} bit={}", old_addr, addr, bit_number);
             return Some((addr, bit_number as u8));
         } else {
@@ -200,8 +290,7 @@ impl Peripherals {
 
     fn is_register(addr: u32) -> bool {
         // this is avoiding the FSMC banks, essentially
-        !
-        (0x6000_0000..0xA000_0000).contains(&addr)
+        !(0x6000_0000..0xA000_0000).contains(&addr)
     }
 
     fn align_addr_4(addr: u32) -> (u32, u8) {
@@ -225,7 +314,7 @@ impl Peripherals {
         assert!(byte_offset + size <= 4);
 
         let value = if let Some(p) = Self::get_peripheral(&self.peripherals, addr) {
-            p.peripheral.borrow_mut().read(sys, addr - p.start) << (8*byte_offset)
+            p.peripheral.borrow_mut().read(sys, addr - p.start) << (8 * byte_offset)
         } else {
             0
         };
@@ -256,7 +345,7 @@ impl Peripherals {
 
         if byte_offset != 0 {
             let v = self.read(sys, addr, 4);
-            value = (value << 8*byte_offset) | (v & (0xFFFF_FFFF >> (32-8*byte_offset)));
+            value = (value << 8 * byte_offset) | (v & (0xFFFF_FFFF >> (32 - 8 * byte_offset)));
         }
 
         if let Some(p) = Self::get_peripheral(&self.peripherals, addr) {
@@ -295,7 +384,8 @@ struct GenericPeripheral {
 
 impl GenericPeripheral {
     pub fn new(name: String, registers: &[RegisterInfo]) -> Self {
-        let registers = registers.iter()
+        let registers = registers
+            .iter()
             .map(|r| (r.address_offset, r.clone()))
             .collect();
 
@@ -315,10 +405,6 @@ impl GenericPeripheral {
     }
 
     fn size(&self) -> u32 {
-        self.registers
-            .keys()
-            .cloned()
-            .max()
-            .unwrap_or(0) + 4
+        self.registers.keys().cloned().max().unwrap_or(0) + 4
     }
 }
