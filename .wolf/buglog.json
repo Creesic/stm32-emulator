@@ -1,0 +1,1550 @@
+{
+  "version": 1,
+  "bugs": [
+    {
+      "id": "bug-001",
+      "timestamp": "2026-07-10T17:33:28-04:00",
+      "error_message": "Access to the path 'C:\\Users\\Tera\\Desktop\\Epictuner\\rusefi.snapshot.proteus_f7' is denied.",
+      "file": "C:\\Users\\Tera\\Desktop\\Epictuner\\rusefi.snapshot.proteus_f7",
+      "root_cause": "The supplied snapshot path is a directory, not the firmware binary; opening a directory as a binary produces the access-denied error.",
+      "fix": "Enumerate the snapshot directory, then inspect its rusefi.bin payload.",
+      "tags": [
+        "firmware",
+        "filesystem",
+        "probe"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T17:33:28-04:00"
+    },
+    {
+      "id": "bug-002",
+      "timestamp": "2026-07-10T17:41:00-04:00",
+      "error_message": "The assumed stm32-rs raw SVD URL returned HTTP 404; the ST archive URL could not be opened by the browser safety checker.",
+      "file": "STM32F767.svd source lookup",
+      "root_cause": "The probe used an unverified raw repository path and the browser does not treat a direct ZIP download as a safe document target.",
+      "fix": "Use the documented ST STM32F7 SVD archive during setup and validate that it contains STM32F767.svd before copying it.",
+      "tags": [
+        "svd",
+        "firmware",
+        "source-discovery"
+      ],
+      "related_bugs": [
+        "bug-001"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T17:41:00-04:00"
+    },
+    {
+      "id": "bug-003",
+      "timestamp": "2026-07-10T17:44:00-04:00",
+      "error_message": "Missing required asset: C:\\Users\\Tera\\Documents\\GitHub\\stm32-emulator\\proteus_f7\\config.yaml. Run .\\setup.ps1 first.",
+      "file": "proteus_f7/verify_boot.ps1",
+      "root_cause": "The TDD preflight correctly ran before the Proteus F767 configuration and local assets existed.",
+      "fix": "Add the minimal configuration and setup script, then initialize the ignored firmware and SVD assets.",
+      "tags": [
+        "tdd",
+        "proteus_f7",
+        "configuration"
+      ],
+      "related_bugs": [
+        "bug-001",
+        "bug-002"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T17:44:00-04:00"
+    },
+    {
+      "id": "bug-004",
+      "timestamp": "2026-07-10T18:13:00-04:00",
+      "error_message": "The combined setup and smoke command timed out after 60 seconds; curl received no bytes from https://www.st.com/resource/en/svd/stm32f7_svd.zip within 15 seconds.",
+      "file": "proteus_f7/setup.ps1",
+      "root_cause": "The ST archive endpoint is unresponsive from this environment, preventing setup from downloading the SVD.",
+      "fix": "Download the maintained vendor-derived stm32f767.svd directly from tinygo-org/stm32-svd, which returned HTTP 200 in 0.32 seconds.",
+      "tags": [
+        "svd",
+        "network",
+        "setup"
+      ],
+      "related_bugs": [
+        "bug-002",
+        "bug-003"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T18:13:00-04:00"
+    },
+    {
+      "id": "bug-005",
+      "timestamp": "2026-07-10T18:22:00-04:00",
+      "error_message": "CMake 4.2 rejected SDL2 and Unicorn build scripts because their CMakeLists.txt files require compatibility with CMake < 3.5; the Visual Studio generator then stalled in its compiler probe.",
+      "file": "Cargo native dependency build",
+      "root_cause": "The repository pins native dependencies whose CMake projects predate CMake 4's compatibility change, and automatic generator selection chose the stalled Visual Studio path.",
+      "fix": "Use CMAKE_POLICY_VERSION_MINIMUM=3.5 and CMAKE_GENERATOR=Ninja with a fresh local Cargo target directory; the full release build then completed successfully.",
+      "tags": [
+        "cmake",
+        "cargo",
+        "windows",
+        "build"
+      ],
+      "related_bugs": [
+        "bug-004"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T18:22:00-04:00"
+    },
+    {
+      "id": "bug-006",
+      "timestamp": "2026-07-10T18:25:00-04:00",
+      "error_message": "Baseline execution emitted repeated READ_UNMAPPED warnings at 0x08089aa8 through 0x08089bd8 while executing code at 0x0027fb18.",
+      "file": "proteus_f7/config.yaml",
+      "root_cause": "The configuration mapped only the STM32F7 ITCM flash alias at 0x00200000; the firmware accesses read-only data through the AXI flash alias at 0x08000000.",
+      "fix": "Map the same rusefi.bin image at 0x08000000 as ROM-AXI-alias and verify the trace no longer emits unmapped reads in the flash range.",
+      "tags": [
+        "memory-map",
+        "stm32f767",
+        "firmware"
+      ],
+      "related_bugs": [
+        "bug-005"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T18:25:00-04:00"
+    },
+    {
+      "id": "bug-007",
+      "timestamp": "2026-07-10T18:28:00-04:00",
+      "error_message": "RCC regression test failed to compile because Rcc::cfgr_after_write was undefined.",
+      "file": "src/peripherals/rcc.rs",
+      "root_cause": "The existing RCC implementation returns a hardcoded CFGR value and has no state-transition helper for system-clock status.",
+      "fix": "Store CFGR and derive its SWS status bits from the written SW selection bits.",
+      "tags": [
+        "tdd",
+        "rcc",
+        "stm32f767"
+      ],
+      "related_bugs": [
+        "bug-006"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T18:28:00-04:00"
+    },
+    {
+      "id": "bug-008",
+      "timestamp": "2026-07-10T18:30:00-04:00",
+      "error_message": "RCC LSI-ready regression test failed to compile because Rcc::csr_after_write was undefined.",
+      "file": "src/peripherals/rcc.rs",
+      "root_cause": "The RCC model neither stores CSR nor reports LSIRDY after firmware enables LSION.",
+      "fix": "Store CSR and set or clear LSIRDY with LSION in csr_after_write.",
+      "tags": [
+        "tdd",
+        "rcc",
+        "lsi"
+      ],
+      "related_bugs": [
+        "bug-007"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T18:30:00-04:00"
+    },
+    {
+      "id": "bug-009",
+      "timestamp": "2026-07-10T18:32:00-04:00",
+      "error_message": "PWR readiness test failed to compile because peripherals::pwr did not exist.",
+      "file": "src/peripherals/mod.rs",
+      "root_cause": "PWR was left as an unimplemented generic peripheral, so CSR1 always read zero and firmware waited indefinitely for VOSRDY.",
+      "fix": "Register a minimal PWR peripheral that stores CR1 and reports VOSRDY in CSR1 after voltage scaling is selected.",
+      "tags": [
+        "tdd",
+        "pwr",
+        "stm32f767"
+      ],
+      "related_bugs": [
+        "bug-008"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T18:32:00-04:00"
+    },
+    {
+      "id": "bug-010",
+      "timestamp": "2026-07-10T18:35:00-04:00",
+      "error_message": "PWR over-drive readiness test returned CSR1 bit 16 clear after CR1.ODEN was set.",
+      "file": "src/peripherals/pwr.rs",
+      "root_cause": "The initial PWR model only derived VOSRDY from CR1 voltage scaling bits.",
+      "fix": "Mirror observed CR1 over-drive enable bits 16 and 17 into CSR1 readiness bits.",
+      "tags": [
+        "tdd",
+        "pwr",
+        "overdrive"
+      ],
+      "related_bugs": [
+        "bug-009"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T18:35:00-04:00"
+    },
+    {
+      "id": "bug-011",
+      "timestamp": "2026-07-10T18:37:00-04:00",
+      "error_message": "Firmware waits at 0x00218d56 for FLASH_ACR latency bits to read as 7, while the generic FLASH peripheral always returns zero.",
+      "file": "src/peripherals/mod.rs",
+      "root_cause": "FLASH is not modeled, so its generic register handler discards the latency write made during high-speed clock setup.",
+      "fix": "Next phase-2 increment: add a minimal FLASH ACR register model that retains the firmware's latency value and verify the next startup boundary.",
+      "tags": [
+        "flash",
+        "clock-setup",
+        "phase2"
+      ],
+      "related_bugs": [
+        "bug-010"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T18:37:00-04:00"
+    },
+    {
+      "id": "bug-012",
+      "timestamp": "2026-07-10T19:28:51-04:00",
+      "error_message": "Baseline cargo test failed while CMake 4.2 configured bundled SDL2 and Unicorn with the Visual Studio generator.",
+      "file": "Cargo native dependency build",
+      "root_cause": "The command omitted the repository's required CMake policy and Ninja generator environment.",
+      "fix": "Set CMAKE_POLICY_VERSION_MINIMUM=3.5 and CMAKE_GENERATOR=Ninja before Cargo commands.",
+      "tags": [
+        "cmake",
+        "cargo",
+        "windows",
+        "baseline"
+      ],
+      "related_bugs": [
+        "bug-005"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T19:28:51-04:00"
+    },
+    {
+      "id": "bug-013",
+      "timestamp": "2026-07-10T19:31:39-04:00",
+      "error_message": "cargo fmt --check reports formatting changes across pre-existing repository files.",
+      "file": "Repository formatting baseline",
+      "root_cause": "The established codebase has not been formatted with the active Rust formatter.",
+      "fix": "Format and verify only newly added launcher files; leave unrelated user code unchanged.",
+      "tags": [
+        "formatting",
+        "baseline",
+        "scope"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T19:31:39-04:00"
+    },
+    {
+      "id": "bug-014",
+      "timestamp": "2026-07-10T19:40:00-04:00",
+      "error_message": "The variant generator failed to compile because serde_yaml::Mapping::get requires a Value key rather than a string.",
+      "file": "src/bin/generate-variant-registry.rs",
+      "root_cause": "The parser crossed from serde_yaml::Value into serde_yaml::Mapping and used the wrong lookup API.",
+      "fix": "Use Value::String for nested mapping keys and cover CPU-family extraction with a generator unit test.",
+      "tags": [
+        "serde_yaml",
+        "generator",
+        "tdd"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T19:40:00-04:00"
+    },
+    {
+      "id": "bug-015",
+      "timestamp": "2026-07-10T19:42:00-04:00",
+      "error_message": "Static registry generation found duplicate source variant ID uaefi_pro_h7.",
+      "file": "C:\\Users\\Tera\\Documents\\GitHub\\epicefi_fw\\firmware\\config\\boards",
+      "root_cause": "Two distinct Hellen board manifests use the same variant label.",
+      "fix": "Preserve unique labels and qualify only duplicate labels with their relative board path.",
+      "tags": [
+        "registry",
+        "epicefi",
+        "source-data"
+      ],
+      "related_bugs": [
+        "bug-014"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T19:42:00-04:00"
+    },
+    {
+      "id": "bug-016",
+      "timestamp": "2026-07-10T19:43:00-04:00",
+      "error_message": "The duplicate-ID pass failed to compile because its count map borrowed variant IDs before the mutation pass.",
+      "file": "src/bin/generate-variant-registry.rs",
+      "root_cause": "BTreeMap stored borrowed strings from the mutable slice, conflicting with later mutation.",
+      "fix": "Store owned String keys and update variants through iter_mut.",
+      "tags": [
+        "rust",
+        "ownership",
+        "generator"
+      ],
+      "related_bugs": [
+        "bug-015"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T19:43:00-04:00"
+    },
+    {
+      "id": "bug-017",
+      "timestamp": "2026-07-10T20:20:00-04:00",
+      "error_message": "cargo run could not determine a binary after stm32-launcher and generate-variant-registry were added.",
+      "file": "Proteus run commands and verification harness",
+      "root_cause": "Existing bare cargo run commands became ambiguous once the package exposed multiple binaries.",
+      "fix": "Select the firmware CLI explicitly with cargo run --bin stm32-emulator.",
+      "tags": [
+        "cargo",
+        "launcher",
+        "regression"
+      ],
+      "related_bugs": [
+        "bug-013"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T20:20:00-04:00"
+    },
+    {
+      "id": "bug-018",
+      "timestamp": "2026-07-10T20:22:00-04:00",
+      "error_message": "After FLASH_ACR became stateful, Proteus firmware loops at 0x00231f16 waiting for TIM11.SR.CC1IF.",
+      "file": "src/peripherals/mod.rs",
+      "root_cause": "TIM11 remains a generic peripheral and never reports the input-capture event enabled by the firmware.",
+      "fix": "Add a trace-constrained TIM11 input-capture readiness model and verify the next startup boundary before OTG-FS work.",
+      "tags": [
+        "timer",
+        "input-capture",
+        "startup",
+        "proteus"
+      ],
+      "related_bugs": [
+        "bug-011"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T20:22:00-04:00"
+    },
+    {
+      "id": "bug-019",
+      "timestamp": "2026-07-10T20:25:00-04:00",
+      "error_message": "Proteus F7 firmware reaches vdiv.f32 at 0x002397f0 and Unicorn exits with INSN_INVALID.",
+      "file": "src/emulator.rs",
+      "root_cause": "The current Unicorn ARM MCLASS execution configuration does not execute the firmware's required Cortex-M single-precision divide instruction.",
+      "fix": "Investigate an evidence-backed FPU-capable Unicorn configuration or a core-emulation replacement before continuing peripheral USB modeling.",
+      "tags": [
+        "fpu",
+        "unicorn",
+        "cortex-m7",
+        "startup"
+      ],
+      "related_bugs": [
+        "bug-018"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T20:25:00-04:00"
+    },
+    {
+      "id": "bug-020",
+      "timestamp": "2026-07-10T20:38:00-04:00",
+      "error_message": "Documentation patch calls failed because Markdown backticks and a misencoded dash in their context conflicted with the JavaScript patch wrapper.",
+      "file": "FPU design documentation update",
+      "root_cause": "The wrapper uses JavaScript template literals and patch matching requires the exact Unicode text from the repository.",
+      "fix": "Construct backtick and em-dash characters explicitly before submitting the patch.",
+      "tags": [
+        "tooling",
+        "patch",
+        "documentation"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T20:38:00-04:00"
+    },
+    {
+      "id": "bug-021",
+      "timestamp": "2026-07-10T20:47:00-04:00",
+      "error_message": "git diff --no-index --check returned exit code 1 for an untracked plan despite emitting only a line-ending warning.",
+      "file": "FPU implementation-plan self-review command",
+      "root_cause": "The no-index comparison reports a difference between NUL and the newly created file, which PowerShell preserves as the command exit code.",
+      "fix": "Treat the silent no-index difference result as non-fatal for an untracked document and use direct placeholder and consistency scans for plan review.",
+      "tags": [
+        "git",
+        "planning",
+        "tooling"
+      ],
+      "related_bugs": [
+        "bug-020"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T20:47:00-04:00"
+    },
+    {
+      "id": "bug-022",
+      "timestamp": "2026-07-10T20:55:00-04:00",
+      "error_message": "Upgrading to unicorn-engine 2.1.5 failed to compile because Permission no longer exists and memory-map lengths now require u64.",
+      "file": "src/system.rs",
+      "root_cause": "The newer Unicorn Rust binding renamed Permission to Prot and changed mem_map/mmio_map size parameters from usize to u64.",
+      "fix": "Use unicorn_const::Prot and cast only the mapping arguments to u64 while retaining usize for host slice bounds.",
+      "tags": [
+        "unicorn",
+        "dependency-upgrade",
+        "compile"
+      ],
+      "related_bugs": [
+        "bug-019"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T20:55:00-04:00"
+    },
+    {
+      "id": "bug-023",
+      "timestamp": "2026-07-10T21:09:00-04:00",
+      "error_message": "The Unicorn 2.1.5 CPU-model helper failed to compile because its returned Unicorn type omitted the new lifetime parameter.",
+      "file": "src/emulator.rs",
+      "root_cause": "unicorn-engine 2.1.5 changed Unicorn from a one-parameter type to Unicorn<'a, D>, and a returned no-data engine has no inferred input lifetime.",
+      "fix": "Return Unicorn<'static, ()> from the owned-engine constructor and verify the exact VDIV.F32 regression.",
+      "tags": [
+        "unicorn",
+        "lifetime",
+        "fpu"
+      ],
+      "related_bugs": [
+        "bug-022",
+        "bug-019"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T21:09:00-04:00"
+    },
+    {
+      "id": "bug-024",
+      "timestamp": "2026-07-10T21:18:00-04:00",
+      "error_message": "The native launcher emits YAML without the now-required CPU model, so the updated emulator rejects its generated configuration.",
+      "file": "src/launcher/mod.rs",
+      "root_cause": "The launcher profile schema predates the required Cpu.model field added for explicit Cortex-M4 and Cortex-M7 selection.",
+      "fix": "Persist and emit an explicit CPU model for every runnable profile, including a user-selected model in manual mode.",
+      "tags": [
+        "launcher",
+        "configuration",
+        "cpu-model"
+      ],
+      "related_bugs": [
+        "bug-019"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T21:18:00-04:00"
+    },
+    {
+      "id": "bug-025",
+      "timestamp": "2026-07-10T21:26:00-04:00",
+      "error_message": "A registry-source search failed because PowerShell did not expand wildcard components embedded in the rg path argument.",
+      "file": "local Cargo registry search",
+      "root_cause": "The Windows rg invocation received literal glium-0.35.* and winit-* path components.",
+      "fix": "Enumerate exact dependency directories first, then run rg against the resolved paths.",
+      "tags": [
+        "tooling",
+        "powershell",
+        "research"
+      ],
+      "related_bugs": [
+        "bug-020"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T21:26:00-04:00"
+    },
+    {
+      "id": "bug-026",
+      "timestamp": "2026-07-10T21:30:00-04:00",
+      "error_message": "The release launcher build could not replace stm32-launcher.exe because the active executable was locked.",
+      "file": "C:\\Users\\Tera\\AppData\\Local\\stm32-emulator-proteus-f7-target\\release\\stm32-launcher.exe",
+      "root_cause": "The native launcher was still running while Cargo attempted to overwrite its release executable.",
+      "fix": "Close the launcher before rebuilding; the release build completes once Windows releases the executable lock.",
+      "tags": [
+        "windows",
+        "cargo",
+        "launcher",
+        "build"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T21:30:00-04:00"
+    },
+    {
+      "id": "bug-027",
+      "timestamp": "2026-07-10T21:31:00-04:00",
+      "error_message": "llvm-objdump rejected -b binary while trying to decode the raw Proteus instruction.",
+      "file": "Proteus F7 VFP instruction decode probe",
+      "root_cause": "The installed LLVM objdump build does not support GNU objdump's binary-input switch.",
+      "fix": "Use an ARM-aware decoder or the Unicorn raw-instruction regression instead of assuming LLVM accepts GNU binary-input flags.",
+      "tags": [
+        "tooling",
+        "disassembly",
+        "vfp"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T21:31:00-04:00"
+    },
+    {
+      "id": "bug-028",
+      "timestamp": "2026-07-10T21:32:00-04:00",
+      "error_message": "Unicorn error=INSN_INVALID at pc=0x002397f0 after the verified VDIV.F32 at 0x002397ec.",
+      "file": "src/emulator.rs",
+      "root_cause": "Deprecated Mode::MCLASS overwrote the requested Cortex-M7 with Cortex-M33 at Unicorn ARM CPU initialization, leaving the emulator with only the single-precision feature set while the F767 firmware executes a double-precision conversion.",
+      "fix": "Create the engine with Mode::THUMB and select Cortex-M7 only through ctl_set_cpu_model; retain the exact raw-opcode regression and real-firmware continuation gate.",
+      "tags": [
+        "unicorn",
+        "cortex-m7",
+        "vfp",
+        "proteus"
+      ],
+      "related_bugs": [
+        "bug-019",
+        "bug-023"
+      ],
+      "occurrences": 3,
+      "last_seen": "2026-07-10T21:53:00-04:00"
+    },
+    {
+      "id": "bug-029",
+      "timestamp": "2026-07-10T21:33:00-04:00",
+      "error_message": "The first OpenWolf metadata patch failed because its anatomy context omitted the existing blank-line layout.",
+      "file": ".wolf/anatomy.md",
+      "root_cause": "The patch expected an incomplete line from a truncated prior read.",
+      "fix": "Read the exact local context before applying the corrected metadata patch.",
+      "tags": [
+        "tooling",
+        "patch",
+        "openwolf"
+      ],
+      "related_bugs": [
+        "bug-020"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T21:33:00-04:00"
+    },
+    {
+      "id": "bug-030",
+      "timestamp": "2026-07-10T21:42:00-04:00",
+      "error_message": "cargo test --bin stm32-emulator -- --list rebuilt bundled SDL2 with the repository-local target directory and failed CMake 4.2 compatibility setup.",
+      "file": "Cargo test environment",
+      "root_cause": "The diagnostic command was launched in a new PowerShell process without the required CMAKE_POLICY_VERSION_MINIMUM, CMAKE_GENERATOR, and CARGO_TARGET_DIR environment variables.",
+      "fix": "Repeat all Cargo diagnostic commands with the repository's required CMake policy, Ninja generator, and local AppData target directory.",
+      "tags": [
+        "cargo",
+        "cmake",
+        "test",
+        "environment"
+      ],
+      "related_bugs": [
+        "bug-005",
+        "bug-012"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T21:42:00-04:00"
+    },
+    {
+      "id": "bug-031",
+      "timestamp": "2026-07-10T21:45:00-04:00",
+      "error_message": "Cargo could not use the Unicorn monorepo revision as unicorn-engine because its repository root has no Cargo.toml.",
+      "file": "Cargo.toml",
+      "root_cause": "The Rust bindings were moved out of the Unicorn monorepo into the unicorn-engine-rs repository, while the monorepo now contains only a Rust binding README.",
+      "fix": "Evaluate an immutable unicorn-engine-rs revision that packages its core source, and record both the binding and underlying core revisions before retaining it.",
+      "tags": [
+        "cargo",
+        "unicorn",
+        "dependency",
+        "upstream"
+      ],
+      "related_bugs": [
+        "bug-028"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T21:45:00-04:00"
+    },
+    {
+      "id": "bug-032",
+      "timestamp": "2026-07-10T21:47:00-04:00",
+      "error_message": "The shallow unicorn-engine-rs inspection clone contained an uninitialized crates/unicorn-sys/unicorn submodule.",
+      "file": "unicorn-engine-rs upstream inspection checkout",
+      "root_cause": "The Rust bindings vendor the Unicorn core through a Git submodule, and a normal shallow clone does not populate it.",
+      "fix": "Initialize the declared submodule before inspecting the core revision or building the bindings from this checkout.",
+      "tags": [
+        "git",
+        "submodule",
+        "unicorn",
+        "upstream"
+      ],
+      "related_bugs": [
+        "bug-031"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T21:47:00-04:00"
+    },
+    {
+      "id": "bug-033",
+      "timestamp": "2026-07-10T21:50:00-04:00",
+      "error_message": "The upstream core checkout does not include qemu/target/arm/vfp.decode, although its generated decode-vfp.inc.c references the generator's original path.",
+      "file": "Unicorn QEMU VFP decode source inspection",
+      "root_cause": "The packaged source retains generated decoder output but omits the generator input file.",
+      "fix": "Use generated decode-vfp.inc.c and translate-vfp.inc.c with the concrete CPU initialization path as the source evidence; do not infer an instruction hook from the missing generator input.",
+      "tags": [
+        "unicorn",
+        "qemu",
+        "decode",
+        "source-inspection"
+      ],
+      "related_bugs": [
+        "bug-028"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T21:50:00-04:00"
+    },
+    {
+      "id": "bug-034",
+      "timestamp": "2026-07-10T21:56:00-04:00",
+      "error_message": "Running rustfmt on src/emulator.rs reformatted unrelated legacy code outside the VFP continuation change.",
+      "file": "src/emulator.rs",
+      "root_cause": "The file-level formatter applied the active style across an established file with intentional baseline formatting drift.",
+      "fix": "Restore the pre-existing formatting with apply_patch and retain only the engine-mode change, diagnostics, and focused VFP regression; avoid broad formatting on existing files.",
+      "tags": [
+        "formatting",
+        "scope",
+        "rustfmt"
+      ],
+      "related_bugs": [
+        "bug-013"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T21:56:00-04:00"
+    },
+    {
+      "id": "bug-035",
+      "timestamp": "2026-07-10T22:05:00-04:00",
+      "error_message": "Proteus F7 executes to pc=0x0026a42c but has no OTG-FS MMIO access through 1,500,000 instructions.",
+      "file": "Proteus F7 bounded USB trace",
+      "root_cause": "A later unmodeled firmware readiness condition or polling path blocks execution before USB initialization; only the SVD registration, not live OTG use, appears in the trace.",
+      "fix": "Capture the trace-constrained instruction and register behavior at 0x0026a42c before adding USB controller behavior.",
+      "tags": [
+        "proteus",
+        "usb",
+        "trace",
+        "startup"
+      ],
+      "related_bugs": [
+        "bug-018",
+        "bug-028"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:05:00-04:00"
+    },
+    {
+      "id": "bug-036",
+      "timestamp": "2026-07-10T22:08:00-04:00",
+      "error_message": "After LSE becomes ready, Proteus F7 waits at pc=0x0026a476 for PWR.CSR1 bit 3 after writing CSR1 bit 9.",
+      "file": "src/peripherals/pwr.rs",
+      "root_cause": "The PWR model ignores CSR1 writes and derives reads only from CR1, so the observed standby-ready condition never appears.",
+      "fix": "Add a trace-constrained CSR1 state model that reflects the observed bit-3 readiness after bit-9 enable, with a focused regression test.",
+      "tags": [
+        "proteus",
+        "pwr",
+        "startup",
+        "trace"
+      ],
+      "related_bugs": [
+        "bug-035",
+        "bug-010"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:08:00-04:00"
+    },
+    {
+      "id": "bug-037",
+      "timestamp": "2026-07-10T22:15:00-04:00",
+      "error_message": "The filtered 5,100,000-instruction Proteus F7 trace exceeded the 124-second command timeout without producing a matching PC/OTG/fault line.",
+      "file": "Proteus F7 bounded USB trace",
+      "root_cause": "Per-instruction verbose tracing substantially slows the emulator, while the narrow output filter emits no data until the target PC range is reached.",
+      "fix": "Use bounded, focused trace windows or inspect the current instruction path before attempting another long verbose run; do not infer USB activity from the timeout.",
+      "tags": [
+        "proteus",
+        "trace",
+        "timeout",
+        "usb"
+      ],
+      "related_bugs": [
+        "bug-035",
+        "bug-036"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:15:00-04:00"
+    },
+    {
+      "id": "bug-038",
+      "timestamp": "2026-07-10T22:16:00-04:00",
+      "error_message": "PowerShell Format-Hex does not support the requested -Offset and -Count parameters in this environment.",
+      "file": "Proteus F7 binary inspection",
+      "root_cause": "The installed PowerShell exposes an older Format-Hex parameter set than expected.",
+      "fix": "Use the available LLVM disassembler or a byte-range read with supported PowerShell commands for binary inspection.",
+      "tags": [
+        "tooling",
+        "powershell",
+        "trace"
+      ],
+      "related_bugs": [
+        "bug-037"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:16:00-04:00"
+    },
+    {
+      "id": "bug-039",
+      "timestamp": "2026-07-10T22:17:00-04:00",
+      "error_message": "llvm-objdump rejected rusefi.bin as an object file.",
+      "file": "Proteus F7 binary inspection",
+      "root_cause": "The firmware snapshot is a flat binary rather than an ELF/COFF object, so llvm-objdump cannot infer sections or architecture from the file.",
+      "fix": "Extract the flat-binary byte range and feed it to an architecture-explicit decoder instead of treating it as an object file.",
+      "tags": [
+        "tooling",
+        "llvm",
+        "firmware",
+        "disassembly"
+      ],
+      "related_bugs": [
+        "bug-037",
+        "bug-038"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:17:00-04:00"
+    },
+    {
+      "id": "bug-040",
+      "timestamp": "2026-07-10T22:17:00-04:00",
+      "error_message": "The initial bug-log patch for the llvm-objdump failure was malformed and apply_patch rejected it.",
+      "file": ".wolf/buglog.json",
+      "root_cause": "The patch body contained unprefixed JSON lines, which are not valid apply_patch additions.",
+      "fix": "Use a context-anchored patch with every inserted JSON line explicitly marked as an addition.",
+      "tags": [
+        "tooling",
+        "apply-patch",
+        "documentation"
+      ],
+      "related_bugs": [
+        "bug-039"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:17:00-04:00"
+    },
+    {
+      "id": "bug-041",
+      "timestamp": "2026-07-10T22:19:00-04:00",
+      "error_message": "llvm-mc.exe is not installed alongside the available llvm-objdump.exe.",
+      "file": "Proteus F7 binary inspection",
+      "root_cause": "The Visual Studio LLVM installation in this environment contains llvm-objdump but not the llvm-mc decoder utility.",
+      "fix": "Use the project’s Capstone-backed emulator diagnostic path to capture the runtime register address at the identified loop.",
+      "tags": [
+        "tooling",
+        "llvm",
+        "disassembly",
+        "trace"
+      ],
+      "related_bugs": [
+        "bug-039"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:19:00-04:00"
+    },
+    {
+      "id": "bug-042",
+      "timestamp": "2026-07-10T22:21:00-04:00",
+      "error_message": "The first focused test command ran zero tests after adding the emulator binary-module regression.",
+      "file": "src/emulator.rs",
+      "root_cause": "src/emulator.rs is compiled by the stm32-emulator binary target, not the library target selected by cargo test --lib.",
+      "fix": "Run the focused regression with cargo test --bin stm32-emulator so the binary module and its tests are included.",
+      "tags": [
+        "testing",
+        "cargo",
+        "binary-target"
+      ],
+      "related_bugs": [
+        "bug-041"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:21:00-04:00"
+    },
+    {
+      "id": "bug-043",
+      "timestamp": "2026-07-10T22:22:00-04:00",
+      "error_message": "The new stop-address register diagnostic regression failed because stop_address_state did not exist.",
+      "file": "src/emulator.rs",
+      "root_cause": "The failing test was intentionally added before the diagnostic formatter implementation.",
+      "fix": "Add the minimal formatter and use it only when an explicitly requested stop address is reached.",
+      "tags": [
+        "testing",
+        "tdd",
+        "diagnostic",
+        "emulator"
+      ],
+      "related_bugs": [
+        "bug-042"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:22:00-04:00"
+    },
+    {
+      "id": "bug-044",
+      "timestamp": "2026-07-10T22:24:00-04:00",
+      "error_message": "The process probe returned exit code 1 because neither stm32-emulator nor stm32-launcher is running.",
+      "file": "Windows process probe",
+      "root_cause": "Get-Process treats an absent requested process as a nonzero result even with ErrorAction SilentlyContinue.",
+      "fix": "Treat the empty result as confirmation that the release executable is not locked; no emulator defect is indicated.",
+      "tags": [
+        "tooling",
+        "powershell",
+        "process"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:24:00-04:00"
+    },
+    {
+      "id": "bug-045",
+      "timestamp": "2026-07-10T22:28:00-04:00",
+      "error_message": "Proteus F7 stalls at pc=0x0020a134 after requesting RTC.ISR INIT because the expected INITF bit remains clear.",
+      "file": "src/peripherals/rtc.rs",
+      "root_cause": "RTC is currently registered only as a generic SVD debug peripheral, so its status register always reads zero instead of acknowledging the observed initialization request.",
+      "fix": "Add a minimal RTC ISR model that reports INITF after the observed INIT write, with a focused regression test.",
+      "tags": [
+        "proteus",
+        "rtc",
+        "startup",
+        "trace"
+      ],
+      "related_bugs": [
+        "bug-035",
+        "bug-036"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:28:00-04:00"
+    },
+    {
+      "id": "bug-046",
+      "timestamp": "2026-07-10T22:30:00-04:00",
+      "error_message": "The initial anatomy update patch did not match the file's existing unquoted peripheral entry format.",
+      "file": ".wolf/anatomy.md",
+      "root_cause": "The patch context used backticked filenames while the generated anatomy uses plain filenames for src/peripherals entries.",
+      "fix": "Apply the anatomy entry with the exact existing list format.",
+      "tags": [
+        "openwolf",
+        "documentation",
+        "apply-patch"
+      ],
+      "related_bugs": [
+        "bug-040"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:30:00-04:00"
+    },
+    {
+      "id": "bug-047",
+      "timestamp": "2026-07-10T22:31:00-04:00",
+      "error_message": "The second anatomy update patch still failed because the copied em dash was encoding-mismatched.",
+      "file": ".wolf/anatomy.md",
+      "root_cause": "Tool output rendered the Unicode em dash differently from the source text used by apply_patch.",
+      "fix": "Anchor the next patch on the filename-only prefix, avoiding the non-ASCII punctuation.",
+      "tags": [
+        "openwolf",
+        "documentation",
+        "encoding",
+        "apply-patch"
+      ],
+      "related_bugs": [
+        "bug-046"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:31:00-04:00"
+    },
+    {
+      "id": "bug-048",
+      "timestamp": "2026-07-10T22:31:00-04:00",
+      "error_message": "The filename-only anatomy insertion still included an encoding-mismatched neighboring line and apply_patch rejected it.",
+      "file": ".wolf/anatomy.md",
+      "root_cause": "The hunk's flash.rs context retained the non-ASCII dash mismatch.",
+      "fix": "Insert using only the ASCII section header and blank-line context.",
+      "tags": [
+        "openwolf",
+        "documentation",
+        "encoding",
+        "apply-patch"
+      ],
+      "related_bugs": [
+        "bug-046",
+        "bug-047"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:31:00-04:00"
+    },
+    {
+      "id": "bug-049",
+      "timestamp": "2026-07-10T22:33:00-04:00",
+      "error_message": "After RTC initialization, Proteus F7 repeatedly performs READ_UNMAPPED at 0x1FF0F424 from pc=0x0026aca8.",
+      "file": "Proteus F7 bounded startup trace",
+      "root_cause": "The system-memory identification/calibration region at 0x1FF0F424 is not mapped, and the firmware's subsequent polling path cannot observe its expected data.",
+      "fix": "Capture the loop's live registers and decode its condition before mapping only the documented required system-data word.",
+      "tags": [
+        "proteus",
+        "system-memory",
+        "startup",
+        "trace"
+      ],
+      "related_bugs": [
+        "bug-045"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:33:00-04:00"
+    },
+    {
+      "id": "bug-050",
+      "timestamp": "2026-07-10T22:36:00-04:00",
+      "error_message": "After mapping the system-ID page, Proteus F7 reaches Unicorn INSN_INVALID at pc=0x002793e0.",
+      "file": "Proteus F7 bounded startup trace",
+      "root_cause": "Unknown pending trace evidence; this is the next executable core boundary after the previously unmapped system-ID read.",
+      "fix": "Capture the exact instruction at 0x002793e0 and compare it with the configured Cortex-M7 execution model before modifying any emulator behavior.",
+      "tags": [
+        "proteus",
+        "unicorn",
+        "instruction",
+        "trace"
+      ],
+      "related_bugs": [
+        "bug-049",
+        "bug-035"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:36:00-04:00"
+    },
+    {
+      "id": "bug-051",
+      "timestamp": "2026-07-10T22:38:00-04:00",
+      "error_message": "The real invalid instruction boundary is a Thumb WFI at pc=0x002793de; Unicorn reports INSN_INVALID with PC advanced to 0x002793e0.",
+      "file": "src/emulator.rs",
+      "root_cause": "The firmware has reached its Cortex-M idle loop, but the current Unicorn execution path reports the architectural wait instruction as an invalid-instruction error rather than supplying wait-for-interrupt behavior.",
+      "fix": "Reproduce WFI in the configured Cortex-M7 engine, then add a bounded emulator-side treatment that retains interrupt polling rather than terminating execution.",
+      "tags": [
+        "proteus",
+        "unicorn",
+        "wfi",
+        "cortex-m7",
+        "idle"
+      ],
+      "related_bugs": [
+        "bug-050"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:38:00-04:00"
+    },
+    {
+      "id": "bug-052",
+      "timestamp": "2026-07-10T22:40:00-04:00",
+      "error_message": "The initial raw WFI regression passed and did not reproduce the firmware invalid-instruction error.",
+      "file": "src/emulator.rs",
+      "root_cause": "A single WFI instruction is accepted by Unicorn; the firmware failure occurs only in the subsequent WFI-plus-branch idle-loop context or due to surrounding hooks.",
+      "fix": "Expand the regression to execute the real two-instruction idle-loop shape before changing core behavior.",
+      "tags": [
+        "testing",
+        "unicorn",
+        "wfi",
+        "root-cause"
+      ],
+      "related_bugs": [
+        "bug-051"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:40:00-04:00"
+    },
+    {
+      "id": "bug-053",
+      "timestamp": "2026-07-10T22:40:00-04:00",
+      "error_message": "The first bug-log patch for the incomplete WFI regression was malformed and apply_patch rejected it.",
+      "file": ".wolf/buglog.json",
+      "root_cause": "Inserted JSON lines were missing apply_patch addition markers.",
+      "fix": "Append both records with correctly marked addition lines.",
+      "tags": [
+        "openwolf",
+        "apply-patch",
+        "documentation"
+      ],
+      "related_bugs": [
+        "bug-040"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:40:00-04:00"
+    },
+    {
+      "id": "bug-054",
+      "timestamp": "2026-07-10T22:42:00-04:00",
+      "error_message": "The expanded WFI regression showed that emu_start returns successfully after WFI with PC advanced to the following branch rather than executing the branch in the same invocation.",
+      "file": "src/emulator.rs",
+      "root_cause": "WFI creates an emulation-return boundary. The production loop re-enters Unicorn at the following idle-loop branch, unlike the first one-shot regression.",
+      "fix": "Reproduce the second emu_start invocation at the post-WFI PC; then retain the next PC in the emulator loop when WFI returns normally.",
+      "tags": [
+        "testing",
+        "unicorn",
+        "wfi",
+        "execution-loop"
+      ],
+      "related_bugs": [
+        "bug-051",
+        "bug-052"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:42:00-04:00"
+    },
+    {
+      "id": "bug-055",
+      "timestamp": "2026-07-10T22:44:00-04:00",
+      "error_message": "Re-entering Unicorn at the even PC returned by WFI produces INSN_INVALID; the same branch succeeds when re-entered with the Thumb-bit address.",
+      "file": "src/emulator.rs",
+      "root_cause": "run_emulator stores an even PC returned by Unicorn after a normal emulation return and passes it unchanged to the next emu_start. Cortex-M Thumb re-entry requires the low Thumb-state bit.",
+      "fix": "Normalize every normal emulation-return PC through thumb() before the next emu_start, while retaining the even PC for stopping and diagnostics.",
+      "tags": [
+        "proteus",
+        "unicorn",
+        "thumb",
+        "wfi",
+        "root-cause"
+      ],
+      "related_bugs": [
+        "bug-051",
+        "bug-054"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:44:00-04:00"
+    },
+    {
+      "id": "bug-056",
+      "timestamp": "2026-07-10T22:47:00-04:00",
+      "error_message": "The broad firmware-source USB search returned exit code 1 after finding board metadata because some requested paths/pattern groups had no matches.",
+      "file": "epicefi_fw firmware source search",
+      "root_cause": "The combined rg invocation mixed valid board metadata with overly broad optional pattern/path inputs, so its aggregate exit status was not a reliable absence signal.",
+      "fix": "Inspect the confirmed Proteus board files directly with targeted searches.",
+      "tags": [
+        "tooling",
+        "rg",
+        "firmware-source",
+        "usb"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:47:00-04:00"
+    },
+    {
+      "id": "bug-057",
+      "timestamp": "2026-07-10T22:48:00-04:00",
+      "error_message": "The targeted Proteus board-source search named a non-existent proteus-base.mk path.",
+      "file": "epicefi_fw firmware source search",
+      "root_cause": "The actual shared make fragment is named differently, so rg reported the optional path as missing.",
+      "fix": "Use the successfully read board.mk evidence: it enables USART2/K-line serial and contains no OTG/USB enablement.",
+      "tags": [
+        "tooling",
+        "rg",
+        "firmware-source",
+        "usb"
+      ],
+      "related_bugs": [
+        "bug-056"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:48:00-04:00"
+    },
+    {
+      "id": "bug-058",
+      "timestamp": "2026-07-10T22:51:00-04:00",
+      "error_message": "The first targeted USB-source search included a non-existent config/boards/common directory.",
+      "file": "epicefi_fw firmware source search",
+      "root_cause": "The shared STM32 configuration resides under hw_layer/ports/stm32 rather than config/boards/common.",
+      "fix": "Search the actual STM32 configuration and USB-console sources directly for EFI_USB_SERIAL definitions.",
+      "tags": [
+        "tooling",
+        "firmware-source",
+        "usb"
+      ],
+      "related_bugs": [
+        "bug-057"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:51:00-04:00"
+    },
+    {
+      "id": "bug-059",
+      "timestamp": "2026-07-10T22:53:00-04:00",
+      "error_message": "Legacy Proteus F7 compile and meta-info scripts are absent from the current epicefi_fw board directory.",
+      "file": "epicefi_fw firmware source search",
+      "root_cause": "The source tree has migrated Proteus variant metadata to board.yaml, so the old per-variant script paths no longer exist.",
+      "fix": "Use board.yaml and config/stm32f7ems/efifeatures.h to determine the USB feature setting and current build entry point.",
+      "tags": [
+        "firmware-source",
+        "build",
+        "migration"
+      ],
+      "related_bugs": [
+        "bug-056"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:53:00-04:00"
+    },
+    {
+      "id": "bug-060",
+      "timestamp": "2026-07-10T22:53:00-04:00",
+      "error_message": "The initial bug-log patch for the missing legacy scripts was malformed and apply_patch rejected it.",
+      "file": ".wolf/buglog.json",
+      "root_cause": "Inserted JSON lines were missing apply_patch addition markers.",
+      "fix": "Append both records using correctly marked addition lines.",
+      "tags": [
+        "openwolf",
+        "apply-patch",
+        "documentation"
+      ],
+      "related_bugs": [
+        "bug-053"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:53:00-04:00"
+    },
+    {
+      "id": "bug-061",
+      "timestamp": "2026-07-10T22:54:00-04:00",
+      "error_message": "The USB feature search referenced a non-existent firmware/build.gradle file.",
+      "file": "epicefi_fw firmware source search",
+      "root_cause": "The repository's board build entry point is build.sh; build.gradle is not at the firmware root.",
+      "fix": "Use build.sh and the documented board build command after checking the source tree state and build-tool availability.",
+      "tags": [
+        "tooling",
+        "firmware-source",
+        "build"
+      ],
+      "related_bugs": [
+        "bug-059"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:54:00-04:00"
+    },
+    {
+      "id": "bug-062",
+      "timestamp": "2026-07-10T22:56:00-04:00",
+      "error_message": "The current WSL build environment lacks the required arm-none-eabi GCC/binutils toolchain and zip/unzip utilities for a Proteus F7 firmware build.",
+      "file": "epicefi_fw firmware build environment",
+      "root_cause": "The project's configure probe found the native build tools but no Arm GNU embedded compiler toolchain in WSL.",
+      "fix": "Install the documented Arm GNU toolchain plus zip/unzip, or point the build at an existing compatible installation, before building the USB-enabled Proteus F7 image.",
+      "tags": [
+        "firmware",
+        "toolchain",
+        "wsl",
+        "usb"
+      ],
+      "related_bugs": [
+        "bug-061"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:56:00-04:00"
+    },
+    {
+      "id": "bug-063",
+      "timestamp": "2026-07-10T22:59:00-04:00",
+      "error_message": "The prior analysis incorrectly treated the absence of boot-time OTG MMIO as evidence that the supplied Proteus F7 binary was not USB-enabled.",
+      "file": "Proteus F7 virtual USB bring-up",
+      "root_cause": "The emulator has not yet presented a virtual USB host attach/VBUS event, so the trace alone could not distinguish a dormant USB stack from a disabled one.",
+      "fix": "Retain the supplied firmware and implement the planned TCP-connected virtual USB host path before drawing conclusions from OTG activity.",
+      "tags": [
+        "proteus",
+        "usb",
+        "trace",
+        "assumption"
+      ],
+      "related_bugs": [
+        "bug-035"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T22:59:00-04:00"
+    },
+    {
+      "id": "bug-064",
+      "timestamp": "2026-07-10T23:02:00-04:00",
+      "error_message": "The TCP CDC bridge regression failed because ext_devices::usb_cdc_tcp does not exist.",
+      "file": "src/ext_devices/usb_cdc_tcp.rs",
+      "root_cause": "The test was intentionally added before the virtual USB TCP bridge module.",
+      "fix": "Add the nonblocking localhost bridge with bounded byte queues, then rerun the loopback regression.",
+      "tags": [
+        "testing",
+        "tdd",
+        "usb",
+        "tcp"
+      ],
+      "related_bugs": [
+        "bug-063"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T23:02:00-04:00"
+    },
+    {
+      "id": "bug-065",
+      "timestamp": "2026-07-10T23:05:00-04:00",
+      "error_message": "The USB CDC TCP configuration regression failed because ExtDevicesConfig has no usb_cdc_tcp field.",
+      "file": "src/ext_devices/mod.rs",
+      "root_cause": "The bridge exists but has not yet been connected to YAML configuration or ExtDevices ownership.",
+      "fix": "Add the typed configuration field, construct bridge instances, expose lookup, and poll them from ExtDevices.",
+      "tags": [
+        "testing",
+        "tdd",
+        "usb",
+        "configuration"
+      ],
+      "related_bugs": [
+        "bug-064"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T23:05:00-04:00"
+    },
+    {
+      "id": "bug-066",
+      "timestamp": "2026-07-10T23:06:00-04:00",
+      "error_message": "The first ExtDevices wiring patch did not match the existing touchscreen construction context.",
+      "file": "src/ext_devices/mod.rs",
+      "root_cause": "The patch assumed an extra blank line and different formatting than the current constructor block.",
+      "fix": "Read the focused current block and apply a context-accurate patch without altering unrelated formatting.",
+      "tags": [
+        "apply-patch",
+        "configuration",
+        "usb"
+      ],
+      "related_bugs": [
+        "bug-065"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T23:06:00-04:00"
+    },
+    {
+      "id": "bug-067",
+      "timestamp": "2026-07-10T23:09:00-04:00",
+      "error_message": "The OTG-FS interrupt regression failed because peripherals::otg_fs does not exist.",
+      "file": "src/peripherals/otg_fs.rs",
+      "root_cause": "The test was intentionally added before the virtual OTG-FS controller module.",
+      "fix": "Add the minimal shared OTG-FS register and masked-interrupt model, then wire its expanded SVD range into Peripherals.",
+      "tags": [
+        "testing",
+        "tdd",
+        "usb",
+        "otg"
+      ],
+      "related_bugs": [
+        "bug-065"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T23:09:00-04:00"
+    },
+    {
+      "id": "bug-068",
+      "timestamp": "2026-07-10T23:12:00-04:00",
+      "error_message": "The virtual-host reset regression failed because OtgFs has no virtual_host_reset method.",
+      "file": "src/peripherals/otg_fs.rs",
+      "root_cause": "The controller models interrupt registers but has not yet exposed the virtual host-reset event that a TCP attach should queue.",
+      "fix": "Add virtual_host_reset, wire TCP client presence into peripheral polling, and raise the SVD-proven OTG-FS IRQ only when masked pending status exists.",
+      "tags": [
+        "testing",
+        "tdd",
+        "usb",
+        "otg",
+        "host"
+      ],
+      "related_bugs": [
+        "bug-067"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T23:12:00-04:00"
+    },
+    {
+      "id": "bug-069",
+      "timestamp": "2026-07-10T23:17:00-04:00",
+      "error_message": "Proteus F7 writes SysTick LOAD/VAL/CTRL at 0xE000E010 but the emulator reports peri=????, so SysTick never schedules interrupts and the firmware remains in WFI.",
+      "file": "src/peripherals/mod.rs",
+      "root_cause": "The F767 SVD does not supply a SysTick peripheral entry, while the emulator registers peripheral models only by walking the SVD tree.",
+      "fix": "Register the architecture-defined SysTick core block explicitly at 0xE000E010 before finishing peripheral registration.",
+      "tags": [
+        "proteus",
+        "systick",
+        "scheduler",
+        "usb",
+        "trace"
+      ],
+      "related_bugs": [
+        "bug-063",
+        "bug-068"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T23:17:00-04:00"
+    },
+    {
+      "id": "bug-070",
+      "timestamp": "2026-07-10T23:18:00-04:00",
+      "error_message": "The SysTick core-registration regression failed because Peripherals has no register_core_peripherals method.",
+      "file": "src/peripherals/mod.rs",
+      "root_cause": "The test was intentionally added before architecture-defined peripherals were registered outside the SVD walk.",
+      "fix": "Add the minimal SysTick slot at 0xE000E010–0xE000E01C and invoke it during from_svd setup.",
+      "tags": [
+        "testing",
+        "tdd",
+        "systick",
+        "core-peripheral"
+      ],
+      "related_bugs": [
+        "bug-069"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T23:18:00-04:00"
+    },
+    {
+      "id": "bug-071",
+      "timestamp": "2026-07-10T23:24:00-04:00",
+      "error_message": "The live trace also reads SCB.ICSR at 0xE000ED04 as peri=????, so the SVD walk omits the interrupt-control core block as well as SysTick.",
+      "file": "src/peripherals/mod.rs",
+      "root_cause": "The F767 SVD lacks architecture-defined SCB and SysTick entries, preventing the existing SCB model from receiving scheduler PendSV requests.",
+      "fix": "Register SCB explicitly at 0xE000ED00 alongside SysTick before finalizing peripheral registration.",
+      "tags": [
+        "proteus",
+        "scb",
+        "pendsv",
+        "scheduler",
+        "trace"
+      ],
+      "related_bugs": [
+        "bug-069"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T23:24:00-04:00"
+    },
+    {
+      "id": "bug-072",
+      "timestamp": "2026-07-10T23:25:00-04:00",
+      "error_message": "The SCB core-registration regression failed because the core peripheral setup currently installs only SysTick.",
+      "file": "src/peripherals/mod.rs",
+      "root_cause": "The test was intentionally added before the SCB core slot was registered.",
+      "fix": "Add Scb::new(\"SCB\") at 0xE000ED00–0xE000ED8F to register_core_peripherals.",
+      "tags": [
+        "testing",
+        "tdd",
+        "scb",
+        "pendsv"
+      ],
+      "related_bugs": [
+        "bug-071"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T23:25:00-04:00"
+    },
+    {
+      "id": "bug-073",
+      "timestamp": "2026-07-10T23:59:00-04:00",
+      "error_message": "User reports the virtual USB CDC-over-TCP connection is not working; a live TCP client connects and triggers the modeled host-attach/USBRST bit, but the firmware never reacts.",
+      "file": "src/peripherals/otg_fs.rs, src/peripherals/scb.rs",
+      "root_cause": "Live trace (proteus_f7, 100M+ instructions, -vvv) shows zero OTG_FS_GLOBAL/HOST/DEVICE/PWRCLK register accesses at any point; execution is permanently parked at pc=0x002793e0 (the RTOS idle loop) driven only by periodic SysTick interrupts, and PendSV (irq=-2) never fires even once, even though Scb::write correctly forwards an ICSR bit-28 write to Nvic::set_intr_pending(PENDSV). Firmware source (epicefi_fw) confirms EFI_USB_SERIAL=TRUE by default for F7 and that runEpicEfi() unconditionally calls startUsbConsole() near boot (epicefi.cpp:220-221), which only creates a ChibiOS UsbThread (PRIO_CONSOLE) via ThreadController::start() -- usb_serial_start()/usbStart(), the code that actually touches OTG_FS registers, only runs once that thread is scheduled. Since the emulator never leaves the idle thread (no PendSV-driven context switch observed), UsbThread is created but never scheduled to run, so its OTG-FS init code never executes. Separately (and independently), OtgFs itself only implements GRSTCTL/GINTSTS/GINTMSK; modeled_range expands its claimed address window to 8KB, so OTG_FS_HOST/DEVICE/PWRCLK register accesses would silently fall into a semantics-free BTreeMap store instead of real DWC2 device-mode behavior, and UsbCdcTcp::push_from_device/take_for_device are dead code (never called by OtgFs), so no FIFO byte path exists yet either.",
+      "fix": "Not yet fixed. Two independent gaps identified: (1) the emulated RTOS scheduler never context-switches away from the idle thread after boot, so any ChibiOS thread created after early init (not just UsbThread) never runs; (2) OtgFs's device-mode/FIFO/enumeration model is a stub beyond the reset-interrupt bit, matching only a fraction of the original virtual-USB design doc's intended scope. Fixing (1) is the blocking issue for USB specifically, but likely affects other deferred-thread behavior too.",
+      "tags": [
+        "proteus",
+        "usb",
+        "otg",
+        "scheduler",
+        "pendsv",
+        "root-cause"
+      ],
+      "related_bugs": [
+        "bug-063",
+        "bug-067",
+        "bug-068",
+        "bug-069",
+        "bug-071"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-10T23:59:00-04:00"
+    },
+    {
+      "id": "bug-074",
+      "timestamp": "2026-07-11T03:52:32.969Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/emulator.rs",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 9→19 lines (3 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T03:52:32.969Z"
+    },
+    {
+      "id": "bug-075",
+      "timestamp": "2026-07-11T04:30:00-04:00",
+      "error_message": "Follow-up on bug-073: pinpointed exactly where the RTOS scheduler stops requesting a context switch, via temporary Unicorn memory-read instrumentation (added and fully reverted; not committed).",
+      "file": "src/emulator.rs (temporary diagnostic, reverted), rusefi.bin (disassembled read-only via Ghidra)",
+      "root_cause": "ChibiOS's tick/timer machinery works correctly under emulation: `systime` (RAM 0x200231b8+0x1c) increments every SysTick; the virtual-timer list (0x200231b8+0x10) is processed correctly; a real ~12-13ms boot-time timer (object at 0x20021578, callback 0x0027987c = `_thread_timeout`-equivalent) expires on schedule at clk~3,024,913 and correctly re-inserts its thread into a priority-sorted ready list (0x0020b170, confirmed via disassembly: walks and inserts by priority -- a real `chSchReadyI`). BUT no context switch or PendSV ever follows, in this case or the initial boot burst. Traced the ISR epilogue call chain (0x0020d830 -> 0x0028214c -> 0x00282690 -> 0x0025fc74) and found it gated by a single byte flag at RAM 0x2005794d that reads 0x0 on every one of ~55 samples across the whole boot (including immediately after the confirmed wakeup). Patched out the gating check (config.yaml patches:, NOP at 0x0025fc7a) as a live experiment: execution still just falls through to two more loads and returns via the same path (0x0025fccc) with no observable behavior change (still 0 PendSV events) -- this DISPROVES the hypothesis that this flag gates the real reschedule trigger; it looks like an inert debug/profiling hook (possibly SEGGER SystemView instrumentation, which no-ops when not attached) rather than the actual scheduling decision point.",
+      "fix": "Not fixed. The exact call site that is supposed to compare ready-list-head priority against the running thread and request PendSV (ChibiOS's chSchRescheduleS/chSchIsPreemptionRequired equivalent) has not been located -- it is not in the epilogue path traced above. Further progress needs firmware built with debug symbols (blocked on bug-062, missing ARM toolchain in WSL) to decompile with confidence rather than guessing at raw disassembly. Until this scheduler gap is fixed, no thread other than idle ever runs after the first ~13 boot threads go to sleep, so UsbThread (and everything else deferred) never resumes -- this is upstream of and independent from the OtgFs/FIFO model gaps already logged in bug-073.",
+      "tags": [
+        "proteus",
+        "usb",
+        "scheduler",
+        "pendsv",
+        "root-cause",
+        "ghidra",
+        "disproved-hypothesis"
+      ],
+      "related_bugs": [
+        "bug-073"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T04:30:00-04:00"
+    },
+    {
+      "id": "bug-076",
+      "timestamp": "2026-07-11T11:15:00-04:00",
+      "error_message": "Follow-up on bug-075: found and fixed the actual root cause of the scheduler stall using a symbol-matched firmware build (proteus_f7's original source, C:\\Users\\Tera\\Documents\\GitHub\\epicefi_fw, built in WSL with a manually-installed GCC 12.3.1 arm-none-eabi toolchain -- the apt package was only 10.3.1 and the build enforces >=11.3.1).",
+      "file": "src/peripherals/scb.rs",
+      "root_cause": "ChibiOS's ARMv7-M port epilogue (__port_irq_epilogue in ChibiOS/os/common/ports/ARMv7-M/chcore.c:312) only performs its post-IRQ thread switch when SCB->ICSR bit 11 (RETTOBASE) is set -- i.e. no other exception is still active. Scb::read in src/peripherals/scb.rs only implemented offset 0x0088 (CPACR); every other offset, including 0x0004 (ICSR), fell through to a `_ => 0` default. So RETTOBASE always read as 0, and the firmware's scheduler epilogue always skipped the switch -- confirmed by cross-referencing a fresh symbol-matched disassembly (arm-none-eabi-addr2line against the newly built epicefi.elf) with the exact bytes previously traced at the SysTick return path (`ldr r3,[pc,#0x40]; ldr r3,[r3,#4]; ands r3,r3,#0x800; beq ...`), which is precisely this check.",
+      "fix": "Added Scb::read_icsr() returning ICSR_RETTOBASE (bit 11) unconditionally -- correct because this NVIC model never nests interrupts (per its own doc comment), so every exception return already is a return to base level. Added a regression test (icsr_read_reports_rettobase_since_nested_interrupts_are_unsupported); full `cargo test --bin stm32-emulator` still passes (23/23).",
+      "tags": [
+        "proteus",
+        "usb",
+        "scheduler",
+        "scb",
+        "icsr",
+        "rettobase",
+        "root-cause",
+        "fixed"
+      ],
+      "related_bugs": [
+        "bug-073",
+        "bug-075"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T11:15:00-04:00"
+    },
+    {
+      "id": "bug-077",
+      "timestamp": "2026-07-11T11:20:00-04:00",
+      "error_message": "After the bug-076 fix, live-running proteus_f7 (rusefi.bin, unchanged) for the first time actually attempts a real ChibiOS context switch -- and immediately hits an unhandled Unicorn EXCP_SWI (exception 2), which src/emulator.rs's intr_hook treats as fatal and exits the process.",
+      "file": "src/emulator.rs, src/peripherals/nvic.rs",
+      "root_cause": "Ghidra disassembly (rusefi.bin @ 0x00200ca2, the same address as __port_switch_from_isr in the freshly built symbol-matched epicefi.elf) shows this ChibiOS ARMv7-M port performs its ISR-context thread switch via a real `svc 0x0` instruction (not PendSV), presumably relying on the CPU vectoring to the SVCall exception handler (ARM exception #11) to complete the switch. src/emulator.rs's add_intr_hook only handles exception 8 (return-from-exception) and logs-but-continues on 3 (prefetch abort); every other exception, including 2 (software interrupt / SVC), hits the `_ => { error!(...); std::process::exit(1); }` catch-all and hard-kills the emulator.",
+      "fix": "Fixed. Added irq::SVCALL=-5 and Nvic::enter_svcall() in nvic.rs (reuses the existing run_interrupt push-context/vector-jump path -- SVCall is exception #11, and IRQ_OFFSET+(-5)=11 lands read_vector_addr on the right vector-table word), wired from emulator.rs's intr_hook on exception 2. cargo test passes (23/23, no new test added -- NVIC entry needs a full System/Unicorn instance to exercise, which no existing nvic.rs test does; verified instead by live re-run). Live-verified: the original rusefi.bin (unchanged) no longer crashes, executes the SVCall (irq=-5 in the trace) and returns cleanly every tick, and the resuming PC now varies across ticks for a while (real thread execution) instead of being permanently parked at one address -- direct evidence multiple threads are now actually running.",
+      "tags": [
+        "proteus",
+        "usb",
+        "scheduler",
+        "svc",
+        "nvic",
+        "fixed"
+      ],
+      "related_bugs": [
+        "bug-076"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T11:20:00-04:00"
+    },
+    {
+      "id": "bug-078",
+      "timestamp": "2026-07-11T11:45:00-04:00",
+      "error_message": "Even with bug-076 and bug-077 both fixed (scheduler genuinely context-switches now), OTG_FS is still never accessed -- confirmed over a 1,000,000,000+ instruction live run (~4.6s simulated uptime at the observed ~216k instructions/tick), including a live TCP connect partway through (host-attach logged correctly, same as before).",
+      "file": "Proteus F7 live verification",
+      "root_cause": "User correctly pushed back on the sensor-starvation theory: EpicEFI/rusEFI is designed to bring up its USB console on a bench with no car/sensors connected, so USB shouldn't depend on crank/cam/ADC/CAN input at all. Re-investigated with a temporary chSysHalt diagnostic (added and reverted, matching the pattern used for bug-076/077): 0x00234a90 (in the symbol-matched build) is __NVIC_SystemReset's post-AIRCR-write spin loop (ChibiOS/os/common/ext/ARM/CMSIS/Core/Include/core_cm7.h:2156) -- the firmware actually FAULTED and is trying to reset the MCU, which our Scb doesn't implement (AIRCR write is a no-op), so it spins forever instead of rebooting. Captured the actual halt reason live: chSysHalt(\"SV#8\") from ChibiOS/os/rt/src/chdebug.c:220 inside __dbg_check_enter_isr -- a consistency check that fires when a *later* ISR's CH_IRQ_PROLOGUE finds oip->dbg.lock_cnt still nonzero, i.e. a previous critical section was never actually unlocked. Traced this to ChibiOS's ARMv7-M non-PendSV context-switch protocol (chcore.c __port_irq_epilogue / __port_switch_from_isr / __port_exit_from_isr / SVC_Handler): __port_irq_epilogue fabricates a synthetic sizeof(port_extctx)-sized (104-byte, CORTEX_USE_FPU=TRUE) exception frame below the real one and points its `pc` field at __port_switch_from_isr, so the *original* interrupt's own hardware-driven exception return (which our nvic.rs already handles correctly) lands there instead of the real caller; that function eventually falls into __port_exit_from_isr's `svc 0`, and the real SVC_Handler (disassembled directly: `mrs r3,PSP; adds r3,#104; ...; msr PSP,r3; bx lr`) unconditionally skips exactly 104 bytes of stack before its own real exception return. This whole protocol depends on the exact ARM Cortex-M7 lazy-FPU-stacking rule (whether an exception uses a 32-byte basic or 104-byte extended auto-stacked frame is governed by CONTROL.FPCA at entry, encoded into the EXC_RETURN/LR value). Our Nvic::push_regs/pop_regs's own extended-frame layout (CONTEXT_REGS_EXTENDED, 17 regs = 68 bytes, + CONTEXT_REGS = 32 bytes = 100 bytes total) is 4 bytes short of the real 104-byte ARM extended frame (missing the architected FPU reserved/alignment word) -- and more importantly, it's unclear our fpca tracking exactly mirrors real hardware's lazy-stacking state transitions across this specific synthetic multi-frame sequence. A size/state mismatch here would corrupt the stack relative to what SVC_Handler's hardcoded '+104' expects, plausibly explaining a leaked lock a few interrupts later.",
+      "fix": "Not attempted -- this is real Cortex-M7 exception-frame modeling work (fixing the 4-byte extended-frame size gap, and verifying fpca/lazy-stacking state is tracked identically to real hardware across this synthetic-frame protocol), not a quick fix. Flagged for the user; NOT a sensor-simulation gap as first suspected -- correctly overruled by the user, who knows this firmware runs standalone on a bench.",
+      "tags": [
+        "proteus",
+        "usb",
+        "scheduler",
+        "nvic",
+        "fpu",
+        "exception-frame",
+        "chibios-internals",
+        "needs-symbols"
+      ],
+      "related_bugs": [
+        "bug-076",
+        "bug-077"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T11:45:00-04:00"
+    },
+    {
+      "id": "bug-079",
+      "timestamp": "2026-07-11T16:26:47.788Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/peripherals/nvic.rs",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 4→12 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T16:26:47.788Z"
+    },
+    {
+      "id": "bug-080",
+      "timestamp": "2026-07-11T16:31:08.926Z",
+      "error_message": "Wrong reference: flash should be dwt",
+      "file": "src/peripherals/mod.rs",
+      "root_cause": "Used \"flash\" instead of \"dwt\"",
+      "fix": "Changed flash → dwt",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-07-11T16:31:13.412Z"
+    },
+    {
+      "id": "bug-081",
+      "timestamp": "2026-07-11T16:38:57.892Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/peripherals/otg_fs.rs",
+      "root_cause": "3 lines replaced/restructured",
+      "fix": "Rewrote 5→11 lines (3 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T16:38:57.892Z"
+    },
+    {
+      "id": "bug-082",
+      "timestamp": "2026-07-11T17:00:00-04:00",
+      "error_message": "Follow-up on bug-078: fixed the actual SV#8 lock-leak root cause and two further blockers it exposed. Live-verified proteus_f7 now reaches real USB reset-handler execution with 3.6M+ OTG_FS register accesses.",
+      "file": "src/peripherals/nvic.rs, src/peripherals/dwt.rs (new), src/peripherals/otg_fs.rs, src/peripherals/mod.rs",
+      "root_cause": "Four distinct issues found and fixed in sequence, each verified live before moving to the next: (1) Nvic::push_regs/pop_regs's extended (FPU) exception frame was 100 bytes vs real ARM Cortex-M7's 104 (missing the architected alignment word past FPSCR) -- a real inaccuracy, fixed, but proven (via an identical clk-for-clk repro before/after) NOT to be what caused the SV#8 halt. (2) The actual SV#8 cause: ChibiOS's chSysLock()/chSysUnlock() and this ARMv7-M port's __port_irq_epilogue mask interrupts via BASEPRI (disassembly confirmed: `movs r3,#48; msr BASEPRI,r3` / `movs r3,#0; msr BASEPRI,r3`), not PRIMASK -- but Nvic::are_interrupts_disabled only ever checked PRIMASK, so SysTick could fire inside every critical section in the firmware, including __port_irq_epilogue's own BASEPRI-protected atomic switch sequence, corrupting its lock bookkeeping. Fixing this (treat nonzero BASEPRI as masking, matching our no-priority-modeling NVIC) resolved the reset-spin entirely -- execution now runs past the point that always failed before. (3) Next resting point resolved (via the symbol-matched build) to ChibiOS's chSysPolledDelayX, which polls DWT->CYCCNT (confirmed via the exact literal pool value 0xe0001000, DWT base) for a cycle-count delta; we never modeled the DWT unit at all (not in the SVD, same as SysTick/SCB), so CYCCNT always read 0 and the delay never elapsed. Added a minimal Dwt peripheral (registered like SysTick/SCB, outside the SVD) whose CYCCNT read tracks NUM_INSTRUCTIONS. (4) Next resting point resolved to OtgFs::otg_core_reset, spinning on GRSTCTL_CSRST (and later GRSTCTL_TXFFLSH/RXFFLSH) never clearing after being written -- OtgFs::register_write stored these self-clearing W1-to-request bits verbatim instead of completing the requested operation instantly like our other stateless peripherals.",
+      "fix": "All four fixed and unit-tested (26/26 tests pass: peripherals::scb::tests::icsr_read_reports_rettobase_since_nested_interrupts_are_unsupported already covered (1)'s sibling fix from bug-076; new tests added for (3) dwt::tests::cyccnt_write_is_observed_on_the_next_read and (4) otg_fs::tests::grstctl_core_soft_reset_clears_immediately / grstctl_fifo_flush_requests_clear_immediately). Live-verified end to end on the unmodified rusefi.bin with a real TCP host attach: firmware now runs its actual USB reset ISR, reconfiguring GRXFSIZ, endpoint 0 CTL, GINTMSK (to a real nonzero mask, 0xc03c3c18), DOEPMSK/TSIZ, and TX FIFO sizing -- over 3.6 million real OTG_FS register accesses observed in one run, versus zero ever before this session. Firmware then correctly returns to waiting for the next real USB protocol event (enumeration-done / SETUP packets), which OtgFs doesn't generate yet -- see bug-073's still-open 'OtgFs is a stub beyond the reset bit' finding for that remaining, separately-scoped work (full DWC2 device-mode/FIFO/enumeration state machine).",
+      "tags": [
+        "proteus",
+        "usb",
+        "scheduler",
+        "nvic",
+        "basepri",
+        "dwt",
+        "otg",
+        "grstctl",
+        "fixed",
+        "root-cause"
+      ],
+      "related_bugs": [
+        "bug-073",
+        "bug-076",
+        "bug-077",
+        "bug-078"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-11T17:00:00-04:00"
+    }
+  ]
+}
