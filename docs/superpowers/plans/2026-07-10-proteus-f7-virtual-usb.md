@@ -1088,6 +1088,20 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     usb_trace_notes.md's "Resolved: the zero-byte transfer was a real bug,
     now fixed".
 
+    A second bug surfaced by that same capture: firmware then armed the
+    18-byte transfer and enabled `DIEPEMPMSK` but never received a
+    `DIEPINT.TXFE` interrupt (never raised by this project) or useful
+    `DTXFSTS` (stubbed to always read 0 since Task 3), so it waited forever
+    instead of pushing the descriptor bytes. Fixed by raising `DIEPINT.TXFE`
+    when `DIEPEMPMSK` newly unmasks an endpoint with an armed IN transfer,
+    and by reporting a fixed 16-word `DTXFSTS` (this project doesn't model
+    FIFO exhaustion). With both fixes, a full live capture confirms
+    byte-for-byte GET_DESCRIPTOR → SET_ADDRESS → SET_CONFIGURATION →
+    SET_LINE_CODING against real firmware, including SET_CONFIGURATION
+    correctly triggering ChibiOS's real bulk (endpoint 2) and interrupt
+    (endpoint 3) endpoint activation — see usb_trace_notes.md's "Full
+    enumeration confirmed end to end against real firmware".
+
 - [ ] **Step 6: Commit**
 
     git add src/peripherals/otg_fs.rs proteus_f7/usb_trace_notes.md

@@ -179,6 +179,78 @@ packet), then writes `ie[0].DIEPTSIZ = 0x2008_0012` (`XFRSIZ=18`, matching
 before arming `DIEPCTL` — the real 18-byte descriptor response, not the
 previous spurious zero-byte one.
 
+## A third bug, found by the same live capture: DIEPINT.TXFE never fired
+
+Fixing the above got firmware to correctly arm the 18-byte transfer, enable
+`DIEPEMPMSK` (TX FIFO empty interrupt) for EP0 IN, and then simply stop —
+forever, in every subsequent capture. Cross-referencing
+`OTGv1/hal_usb_lld.c`'s `otg_epin_handler`/`otg_txfifo_handler` explained
+why: ChibiOS only pushes IN transfer bytes into the FIFO in response to
+`DIEPINT.TXFE` firing (gated by `DIEPEMPMSK`), and only if `DTXFSTS` reports
+enough free space. This project's model never raised `DIEPINT.TXFE` at all,
+and `DTXFSTS` was stubbed to always read `0` (a Task 3 placeholder, "FIFO
+space accounting arrives in Task 5" — never actually implemented in Task
+5) — so `otg_txfifo_handler`'s space check always failed even if `TXFE` had
+fired.
+
+**Fix** (`src/peripherals/otg_fs.rs`): `DTXFSTS` now reports a fixed 16
+words (64 bytes — matching the configured `DIEPTXF0` depth, plenty for any
+single MPS=64 packet this project's control/CDC transfers ever use; this
+project does not model real FIFO exhaustion, which is out of scope). Writing
+`DIEPEMPMSK` with a newly-unmasked bit for an endpoint whose `DIEPCTL` still
+has `EPENA` set (i.e. an IN transfer is actively armed) now immediately
+raises `DIEPINT.TXFE` for that endpoint, matching real silicon's
+level-triggered behavior (the FIFO starts empty, so unmasking the interrupt
+while a transfer is armed and the FIFO has room should fire immediately).
+Zero-byte transfers are unaffected: they complete (clearing `EPENA`) before
+`DIEPEMPMSK` is ever written, so the new check correctly does not fire
+`TXFE` for them.
+
+## Full enumeration confirmed end to end against real firmware
+
+With all three fixes in place, a single ~60-second live capture (TCP client
+connected after boot, held open) shows, in order, byte-for-byte:
+
+1. **`GET_DESCRIPTOR(DEVICE)` response**: firmware pushes exactly
+   `[0x12,0x01,0x00,0x02, 0xef,0x02,0x01,0x40, 0x83,0x04,0x40,0x57,
+   0x00,0x02,0x01,0x02, 0x03,0x01]` (18 bytes, 5 FIFO words) into `FIFO[0]`
+   — this is byte-for-byte the real `vcom_device_descriptor_data` from
+   `usbcfg.cpp` (bLength=18, bDescriptorType=DEVICE, bcdUSB=0x0200,
+   bDeviceClass=0xEF, idVendor=0x0483, idProduct=0x5740, bcdDevice=0x0200,
+   iManufacturer=1, iProduct=2, iSerialNumber=3, bNumConfigurations=1).
+2. **`SET_ADDRESS(5)`**: firmware reads back `[0x00,0x05,0x05,0x00,
+   0x00,0x00,0x00,0x00]` from the FIFO — exactly this project's
+   `set_address_packet(VIRTUAL_DEVICE_ADDRESS=5)`.
+3. **`SET_CONFIGURATION(1)`**: firmware reads back
+   `[0x00,0x09,0x01,0x00, 0x00,0x00,0x00,0x00]` — exactly
+   `set_configuration_packet(1)`. This triggers ChibiOS's
+   `USB_EVENT_CONFIGURED` callback, which calls `usbInitEndpointI` for the
+   real firmware endpoints — confirmed by the resulting register writes:
+   - `oe[2].DOEPCTL = 0x1008_8040` and `ie[2].DIEPCTL = 0x1088_8040` —
+     `EPTYP_BULK | USBAEP | MPSIZ(64)`, exactly `cdcDataEpConfig`
+     (`USB_EP_MODE_TYPE_BULK`, 0x0040 in both directions).
+   - `ie[3].DIEPCTL = 0x10cc_8010` — `EPTYP_INTR | USBAEP | MPSIZ(16)`,
+     exactly `cdcInterruptEpConfig` (`USB_EP_MODE_TYPE_INTR`, 0x0010,
+     IN-only).
+   - `oe[2].DOEPCTL` is then re-armed with `EPENA` set
+     (`0x9408_8040`) — the real bulk OUT endpoint is now actively
+     listening, matching this project's `bulk_out_endpoint = Some(2)`.
+4. **`SET_LINE_CODING`**: firmware reads back
+   `[0x21,0x20,0x00,0x00, 0x00,0x00,0x07,0x00]` — exactly
+   `set_line_coding_packet()`'s SETUP header (class request, interface
+   recipient, `bRequest=0x20`, `wLength=7`). `DOEPINT.STUP` fires exactly
+   when the `SETUP_COMP` entry is popped, confirming the interrupt-timing
+   fix holds for this stage too.
+
+The capture ended here (60 real seconds elapsed) before the SET_LINE_CODING
+7-byte data stage (`OUT_DATA`/`OUT_COMP`, still queued in `rx_status` at
+that point) and `SET_CONTROL_LINE_STATE` were processed — not a functional
+problem, just the wall-clock window closing. Given every stage observed so
+far matches exactly and uses the same uniform mechanism (no stage-specific
+special-casing), there's no specific reason to expect the remaining two
+stages to behave differently; confirming them fully would need either a
+longer capture or a real TunerStudio-style protocol exchange attempt.
+
 ### Live capture attempts
 
 - Connecting a few seconds after boot and holding 5-30s: reached the first

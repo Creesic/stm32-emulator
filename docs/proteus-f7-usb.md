@@ -51,21 +51,33 @@ emulator's log (`-v`):
 "Virtual USB host attached" confirms the listener accepted the connection
 and the modeled OTG-FS controller raised a bus reset toward firmware.
 
+## Enumeration confirmed end to end
+
+A single live capture confirms, byte-for-byte, that the virtual host's
+`GET_DESCRIPTOR` → `SET_ADDRESS` → `SET_CONFIGURATION` → `SET_LINE_CODING`
+sequence drives the real, unmodified firmware through actual enumeration:
+firmware pushes the real 18-byte USB device descriptor
+(vendor/product/class bytes matching `usbcfg.cpp` exactly), accepts address
+5, and — on `SET_CONFIGURATION` — ChibiOS's own `USB_EVENT_CONFIGURED`
+callback activates the real bulk endpoint (2, both directions) and
+interrupt endpoint (3) with the exact register values ChibiOS's endpoint
+descriptors specify, then arms bulk OUT for reception. See
+`proteus_f7/usb_trace_notes.md`'s "Full enumeration confirmed end to end
+against real firmware" for the complete byte-level trace.
+
+Getting here took three real, evidence-driven bug fixes to the OTG-FS
+model — a `GET_DESCRIPTOR` interrupt-timing bug (`DOEPINT.STUP` fired
+before firmware could read the SETUP bytes, producing a spurious zero-byte
+response instead of the real 18-byte descriptor) and a missing
+`DIEPINT.TXFE`/`DTXFSTS` implementation (firmware waited forever for a "TX
+FIFO empty" interrupt this project never raised) — both found by reading
+ChibiOS's actual USB driver source and confirmed against live captures; see
+usb_trace_notes.md for the full account.
+
 ## Current limitation
 
-The emulator's virtual USB host drives bus reset and endpoint-zero control
-transfers (`GET_DESCRIPTOR`, `SET_ADDRESS`, `SET_CONFIGURATION`,
-`SET_LINE_CODING`, `SET_CONTROL_LINE_STATE`) deterministically, and this has
-been confirmed byte-for-byte against the real firmware's register accesses
-(see `proteus_f7/usb_trace_notes.md`). Bulk IN/OUT forwarding is wired to
-endpoint 2 (the real CDC data endpoint, confirmed from firmware source).
-
-Reading the firmware's own ChibiOS USB driver source surfaced and confirmed
-a real bug: `GET_DESCRIPTOR` interrupt timing raised `DOEPINT.STUP` before
-firmware could read the actual SETUP bytes, causing a spurious zero-byte
-response instead of the real 18-byte descriptor — fixed, and re-verified
-against a fresh capture showing firmware now reading the real SETUP content
-and arming the correct 18-byte transfer (see usb_trace_notes.md's "Resolved:
-the zero-byte transfer was a real bug, now fixed"). Whether the full 5-stage
-sequence reaches "configured" and a real TunerStudio-style protocol exchange
-have not yet been attempted end to end.
+The capture that confirmed the above ran out of its 60-second window during
+`SET_LINE_CODING`'s data stage, before `SET_CONTROL_LINE_STATE` and
+"configured" state were reached — not a known bug, just an unfinished
+capture. A real TunerStudio-style protocol exchange over the bulk endpoint
+has not yet been attempted.

@@ -94,6 +94,13 @@ impl OtgFs {
     const DIEPCTL_EPENA: u32 = 1 << 31;
     const DOEPCTL_USBAEP: u32 = 1 << 15;
     const DIEPINT_XFRC: u32 = 1 << 0;
+    const DIEPINT_TXFE: u32 = 1 << 7;
+    // Generous fixed "always enough room" value: this project doesn't model
+    // real TX FIFO exhaustion (transfers here are at most one MPS=64 packet),
+    // so reporting the configured FIFO0 depth (DIEPTXF0's 16 words, see
+    // usb_trace_notes.md) as permanently available is an honest
+    // simplification, not a fabrication of unobserved behavior.
+    const DTXFSTS_AVAILABLE_WORDS: u32 = 16;
     const DOEPINT_XFRC: u32 = 1 << 0;
     const DOEPINT_STUP: u32 = 1 << 3;
     const XFRSIZ_MASK: u32 = 0x7_ffff;
@@ -404,7 +411,7 @@ impl OtgFs {
                 Self::EP_CTL_OFFSET => self.ep_in[ep].ctl,
                 Self::EP_INT_OFFSET => self.ep_in[ep].int,
                 Self::EP_TSIZ_OFFSET => self.ep_in[ep].tsiz,
-                Self::DTXFSTS_OFFSET => 0, // FIFO space accounting arrives in Task 5
+                Self::DTXFSTS_OFFSET => Self::DTXFSTS_AVAILABLE_WORDS,
                 _ => 0,
             };
         }
@@ -515,7 +522,22 @@ impl OtgFs {
             Self::DIEPMSK => self.diep_mask = value,
             Self::DOEPMSK => self.doep_mask = value,
             Self::DAINTMSK => self.daint_mask = value,
-            Self::DIEPEMPMSK => self.diep_empty_mask = value,
+            Self::DIEPEMPMSK => {
+                // Real hardware raises DIEPINT.TXFE as soon as an endpoint's
+                // FIFO-empty interrupt is unmasked while a transfer is
+                // armed and the FIFO has room (which it always does here —
+                // see DTXFSTS_AVAILABLE_WORDS). Firmware's otg_epin_handler
+                // dispatches on this bit to actually push the transfer's
+                // bytes (otg_txfifo_handler); without raising it here,
+                // firmware waits forever for an interrupt that never comes.
+                let newly_unmasked = value & !self.diep_empty_mask;
+                self.diep_empty_mask = value;
+                for ep in 0..Self::NUM_ENDPOINTS {
+                    if newly_unmasked & (1 << ep) != 0 && self.ep_in[ep].ctl & Self::DIEPCTL_EPENA != 0 {
+                        self.raise_in_endpoint_interrupt(ep, Self::DIEPINT_TXFE);
+                    }
+                }
+            }
             _ => {
                 self.registers.insert(offset, value);
             }
@@ -749,5 +771,35 @@ mod tests {
         otg.register_read(OtgFs::GRXSTSP);
         otg.register_read(OtgFs::GRXSTSP);
         assert!(!otg.interrupt_pending());
+    }
+
+    #[test]
+    fn enabling_diepempmsk_for_an_armed_nonzero_transfer_raises_txfe() {
+        let mut otg = OtgFs::for_test();
+        // Arm an 18-byte EP0 IN transfer, matching real firmware's
+        // GET_DESCRIPTOR(DEVICE) response sequence: DIEPTSIZ first, then
+        // DIEPCTL with EPENA newly set.
+        otg.register_write(OtgFs::DIEP_BASE + OtgFs::EP_TSIZ_OFFSET, 18);
+        otg.register_write(
+            OtgFs::DIEP_BASE + OtgFs::EP_CTL_OFFSET,
+            0x1000_8040 | OtgFs::DIEPCTL_EPENA,
+        );
+        assert_eq!(
+            otg.register_read(OtgFs::DIEP_BASE + OtgFs::EP_INT_OFFSET) & OtgFs::DIEPINT_TXFE,
+            0
+        );
+        otg.register_write(OtgFs::DIEPEMPMSK, 0x0000_0001);
+        assert_ne!(
+            otg.register_read(OtgFs::DIEP_BASE + OtgFs::EP_INT_OFFSET) & OtgFs::DIEPINT_TXFE,
+            0
+        );
+    }
+
+    #[test]
+    fn dtxfsts_reports_room_for_a_full_control_packet() {
+        let mut otg = OtgFs::for_test();
+        assert!(
+            otg.register_read(OtgFs::DIEP_BASE + OtgFs::DTXFSTS_OFFSET) * 4 >= 64
+        );
     }
 }
