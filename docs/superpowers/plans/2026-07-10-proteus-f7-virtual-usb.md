@@ -1059,18 +1059,21 @@ usb_trace_notes.md's "Enumeration" section for the trace lines):**
     Run: `cargo test otg_fs`
     Expected: PASS.
 
-- [ ] **Step 5: Discover the real bulk endpoint numbers from firmware**
+- [x] **Step 5: Discover the real bulk endpoint numbers from firmware — attempted, not completed**
 
-    Run the emulator from proteus_f7 far enough (raise
-    `--max-instructions` past the point Task 4 reached) with one TCP client
-    connected through full enumeration. Find the first `ie[n].DIEPCTL`/
-    `oe[n].DOEPCTL` writes with `n != 0` and a nonzero `USBAEP` bit — those
-    `n` values are the real CDC bulk IN/OUT endpoint numbers. Record them,
-    with the exact trace lines, in a new "## Bulk endpoints" section of
-    usb_trace_notes.md. Call `otg_fs.set_bulk_endpoints(in_ep, out_ep)` from
-    `OtgFs::new` using those literal numbers (not a config option — the
-    design's non-goals don't call for configurability here, and the
-    firmware's endpoint assignment is fixed at compile time).
+    Four live-capture attempts (documented in usb_trace_notes.md's "Bulk
+    endpoints" section) did not reach a point where firmware activates a
+    non-zero `ie[n]`/`oe[n]` endpoint: `-vvvv` captures were I/O-bottlenecked
+    by their own multi-ten-million-line log before firmware got that far,
+    and a very-early-connect `-vvv` capture showed the OTG-FS reset-response
+    burst never happening at all (a separate, not-yet-understood timing
+    sensitivity). Per this project's non-goal against fabricating unobserved
+    behavior, `OtgFs::new` does NOT call `set_bulk_endpoints` — the method
+    exists and is unit tested, but bulk forwarding stays inactive
+    (`bulk_in_endpoint`/`bulk_out_endpoint` are `None`) until a future
+    session discovers the real numbers, most likely via Task 6's manual
+    end-to-end exchange or a debugger-driven capture instead of more
+    wall-clock-timed TCP connects against an ever-growing trace log.
 
 - [ ] **Step 6: Commit**
 

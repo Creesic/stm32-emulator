@@ -104,3 +104,40 @@ gated by a timer or clock source that correlates with real elapsed wall-clock
 time rather than purely with retired instruction count — worth keeping in
 mind for any future bring-up work that depends on reaching a specific point
 in firmware execution within a bounded instruction count.
+
+## Bulk endpoints (Task 5 — not discovered; documenting why)
+
+Task 5's plan called for discovering the real CDC bulk IN/OUT endpoint
+numbers from a live trace and wiring them into `OtgFs::new`. Four capture
+attempts were made (varying connection timing and hold duration, both
+`-vvv` and `-vvvv`), with inconsistent results:
+- Connecting a few seconds after boot and holding 5-30s: reached the first
+  `GET_DESCRIPTOR` SETUP/response exchange (documented above) but no
+  further — bottlenecked by `-vvvv`'s I/O throughput as the log grew past
+  tens of millions of lines.
+- Connecting immediately (before firmware's own ~57M-instruction boot init)
+  and holding for 280s real time (82M+ instructions logged): the OTG-FS
+  reset-response burst that reliably appears in every other capture (GRSTCTL
+  TXFFLSH, DAINTMSK, GRXFSIZ, etc. — see above) never happened at all, even
+  though `virtual_host_reset()` fired within the first few million
+  instructions. This suggests connecting before firmware has enabled/unmasked
+  the OTG-FS interrupt in the NVIC can cause the pending interrupt to never
+  actually be serviced — a real behavior worth investigating, but out of
+  scope for this task.
+- One `--max-instructions`-bounded, `-vvv` run finished in under a second of
+  wall-clock time without a client ever staying connected long enough to
+  matter (the connect script didn't hold the socket open), confirming
+  nothing about firmware behavior.
+
+Per this project's non-goal against fabricating unobserved behavior, the
+bulk endpoint numbers are left undiscovered rather than guessed:
+`OtgFs::new` does not call `set_bulk_endpoints`, so `bulk_in_endpoint`/
+`bulk_out_endpoint` stay `None` and bulk forwarding (implemented and unit
+tested in Task 5) simply doesn't activate yet. Discovering the real numbers
+needs either a much longer capture budget, or a lower-overhead technique
+(e.g. driving the emulator under a debugger with breakpoints on `ie[n]`/
+`oe[n]` `DIEPCTL`/`DOEPCTL` writes for `n != 0`, rather than wall-clock-timed
+TCP connects against an ever-growing `-vvvv` log). Task 6's manual
+TunerStudio-style exchange is the next natural point to revisit this, since
+it requires the bulk endpoints to work and will surface the real numbers
+directly.

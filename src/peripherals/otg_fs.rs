@@ -42,6 +42,9 @@ pub struct OtgFs {
     rx_status: VecDeque<u32>,
     tx_fifo: [VecDeque<u8>; Self::NUM_ENDPOINTS],
     virtual_host_step: VirtualHostStep,
+    bulk_in_endpoint: Option<usize>,
+    bulk_out_endpoint: Option<usize>,
+    pending_bridge_writes: Vec<u8>,
 }
 
 impl OtgFs {
@@ -122,6 +125,9 @@ impl OtgFs {
                 rx_status: VecDeque::new(),
                 tx_fifo: Default::default(),
                 virtual_host_step: VirtualHostStep::AwaitingDeviceDescriptor,
+                bulk_in_endpoint: None,
+                bulk_out_endpoint: None,
+                pending_bridge_writes: Vec::new(),
             }))
         } else {
             None
@@ -147,7 +153,15 @@ impl OtgFs {
             rx_status: VecDeque::new(),
             tx_fifo: Default::default(),
             virtual_host_step: VirtualHostStep::AwaitingDeviceDescriptor,
+            bulk_in_endpoint: None,
+            bulk_out_endpoint: None,
+            pending_bridge_writes: Vec::new(),
         }
+    }
+
+    pub fn set_bulk_endpoints(&mut self, in_ep: usize, out_ep: usize) {
+        self.bulk_in_endpoint = Some(in_ep);
+        self.bulk_out_endpoint = Some(out_ep);
     }
 
     pub fn set_global_interrupt_status(&mut self, value: u32) {
@@ -245,6 +259,18 @@ impl OtgFs {
         if ep == 0 {
             self.tx_fifo[0].clear();
             self.advance_virtual_host();
+        } else if self.is_configured() && Some(ep) == self.bulk_in_endpoint {
+            // Truncate to the requested transfer size: the FIFO always fills
+            // in whole 4-byte words, but the last word of a transfer whose
+            // byte count isn't a multiple of 4 has trailing pad bytes that
+            // must not reach the TCP client.
+            let xfrsiz = (self.ep_in[ep].tsiz & Self::XFRSIZ_MASK) as usize;
+            let bytes: Vec<u8> = self.tx_fifo[ep].drain(..).collect();
+            let bytes = &bytes[..bytes.len().min(xfrsiz)];
+            match &self.bridge {
+                Some(bridge) => bridge.borrow_mut().push_from_device(bytes),
+                None => self.pending_bridge_writes.extend(bytes),
+            }
         }
     }
 
@@ -476,6 +502,24 @@ impl Peripheral for OtgFs {
             self.host_attached = false;
         }
 
+        if self.is_configured() {
+            if let (Some(out_ep), Some(bridge)) = (self.bulk_out_endpoint, self.bridge.as_ref()) {
+                let bytes = bridge.borrow_mut().take_for_device(64);
+                if !bytes.is_empty() {
+                    self.rx_fifo.extend(bytes.iter().copied());
+                    self.rx_status.push_back(Self::rx_status_word(
+                        Self::RXSTS_OUT_DATA,
+                        bytes.len() as u32,
+                        out_ep,
+                    ));
+                    self.rx_status
+                        .push_back(Self::rx_status_word(Self::RXSTS_OUT_COMP, 0, out_ep));
+                    self.raise_out_endpoint_interrupt(out_ep, Self::DOEPINT_XFRC);
+                    self.set_global_interrupt_status(Self::GINTSTS_RXFLVL);
+                }
+            }
+        }
+
         if self.interrupt_pending() {
             sys.p.nvic.borrow_mut().set_intr_pending(67);
         }
@@ -484,7 +528,7 @@ impl Peripheral for OtgFs {
 
 #[cfg(test)]
 mod tests {
-    use super::OtgFs;
+    use super::{OtgFs, VirtualHostStep};
 
     #[test]
     fn grstctl_core_soft_reset_clears_immediately() {
@@ -602,5 +646,24 @@ mod tests {
             otg.next_setup_request(),
             OtgFs::set_address_packet(OtgFs::VIRTUAL_DEVICE_ADDRESS)
         );
+    }
+
+    #[test]
+    fn configured_bulk_in_completion_forwards_bytes_to_the_bridge() {
+        let mut otg = OtgFs::for_test();
+        otg.virtual_host_step = VirtualHostStep::Configured;
+        otg.set_bulk_endpoints(1, 1);
+        otg.register_write(
+            OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_TSIZ_OFFSET,
+            3,
+        );
+        otg.register_write(
+            OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_CTL_OFFSET,
+            OtgFs::DIEPCTL_EPENA,
+        );
+        otg.register_write(OtgFs::FIFO_BASE + OtgFs::FIFO_WINDOW, 0x00ff0042);
+        // xfrsiz=3 truncates the word-padded 4-byte push (0x42,0x00,0xff,0x00)
+        // to the 3 bytes the endpoint's DIEPTSIZ actually asked to send.
+        assert_eq!(otg.pending_bridge_writes, vec![0x42, 0x00, 0xff]);
     }
 }
