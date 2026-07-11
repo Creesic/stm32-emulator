@@ -1,0 +1,59 @@
+# Proteus F7 OTG-FS trace evidence
+
+Peripheral SVD name: `OTG_FS_GLOBAL` (base 0x5000_0000). IRQ 67
+(`OTG_FS_IRQn` from STM32F767.svd), already wired via
+`sys.p.nvic.borrow_mut().set_intr_pending(67)` in `OtgFs::poll`.
+
+`OTG_FS_DEVICE` (base 0x5000_0800), `OTG_FS_HOST` (base 0x5000_0400), and
+`OTG_FS_PWRCLK` (base 0x5000_0e00) are separate SVD peripherals but are
+NOT separately registered: `Peripherals::modeled_range` widens
+`OTG_FS_GLOBAL`'s claimed range to `(0x5000_0000, 0x5000_2000)`, so all
+four SVD peripherals' addresses, plus FIFO index 0 (`0x5000_1000`-
+`0x5000_1fff`), dispatch to the single `OtgFs` instance. The `offset`
+`OtgFs::read`/`write` receives is `addr - 0x5000_0000`, i.e. the
+`stm32_otg_t` struct offset from ChibiOS's
+`os/hal/ports/STM32/LLD/OTGv1/stm32_otg.h`.
+
+Two SVD register names are wrong; this project uses the struct-offset
+names instead:
+- offset 0x800 (SVD: "CTL") is `DCFG`.
+- offset 0x810 (SVD: "TSIZ") is `DIEPMSK`.
+
+## Observed reset sequence (proteus_f7/usb-plan-evidence.log:10597-13469)
+
+Firmware boot-time OTG-FS init (clk=57044973 onward), before any virtual
+host activity:
+1. write GUSBCFG(0x00c)=0x40001440
+2. write DCFG(0x800)=0x02200003
+3. write PCGCCTL(0xe00)=0x00000000
+4. write GOTGCTL(0x000)=0x000000c0
+5. write GCCFG(0x038)=0x00010000
+6. read GRSTCTL(0x010)=0x80000000; write GRSTCTL=0x00000001 (core soft reset, self-clears)
+7. write GAHBCFG(0x008)=0x00000000
+8. for ep in 0..=5: read ie[ep].DIEPCTL(0x900+ep*0x20)=0; read oe[ep].DOEPCTL(0xb00+ep*0x20)=0; write ie[ep].DIEPINT(0x908+ep*0x20)=0xffffffff; write oe[ep].DOEPINT(0xb08+ep*0x20)=0xffffffff (W1C boilerplate over all 6 endpoint pairs)
+9. write DAINTMSK(0x81c)=0x00010001 (enable EP0 IN + EP0 OUT)
+10. write DIEPMSK(0x810)=0x00000000; write DOEPMSK(0x814)=0x00000000; write DAINTMSK(0x81c)=0x00000000
+11. write GINTMSK(0x018)=0xc0303c08
+12. write GINTSTS(0x014)=0xffffffff (clear all, W1C)
+13. read GAHBCFG=0; write GAHBCFG=0x00000001 (global interrupt enable)
+14. read DCTL(0x804)=0x00000002; write DCTL=0x00000000
+
+## Observed virtual-host-reset response (clk=97910816 onward, after `virtual_host_reset()` sets USB_RESET and TCP client connects)
+
+1. read GINTSTS=0x00001000 (USB_RESET); read GINTMSK=0xc0303c08; write GINTSTS=0x00001000 (W1C ack)
+2. write GRSTCTL=0x00000020 (TXFFLSH); read GRSTCTL=0x80000000 (self-cleared)
+3. write DIEPEMPMSK(0x834)=0x00000000
+4. write DAINTMSK(0x81c)=0x00010001
+5. for ep in 0..=5: write ie[ep].DIEPCTL=0x08000000; write oe[ep].DOEPCTL=0x08000000; write ie[ep].DIEPINT=0xffffffff; write oe[ep].DOEPINT=0xffffffff
+6. write GRXFSIZ(0x024)=0x00000080 (RX FIFO depth 128 words)
+7. write GRSTCTL=0x00000010 (RXFFLSH); read GRSTCTL=0x80000000 (self-cleared)
+8. read DCFG=0x02200003; write DCFG=0x02200003 (unchanged)
+9. read GINTMSK=0xc0303c08; write GINTMSK=0xc03c3c18 (adds RXFLVL, IEPINT, OEPINT)
+10. write DIEPMSK(0x810)=0x00000009 (XFRCM|TOCM); write DOEPMSK(0x814)=0x00000009 (XFRCM|STUPM)
+11. write oe[0].DOEPTSIZ(0xb10)=0x60000000 (STUPCNT=3)
+12. write oe[0].DOEPCTL(0xb00)=0x10008040 (USBAEP|MPSIZ=64, EP0 OUT active)
+13. write ie[0].DIEPTSIZ(0x910)=0x00000000
+14. write ie[0].DIEPCTL(0x900)=0x10008040 (USBAEP|MPSIZ=64, EP0 IN active)
+15. write DIEPTXF0(0x028)=0x00100080 (TX FIFO0: depth 16 words, start word 0x80)
+16. idle: read GINTSTS=0; read GINTMSK=0xc03c3c18; write GINTSTS=0 (no-op)
+17. read ie[0].DTXFSTS(0x918)=0x00000000 — firmware is now polling for EP0 IN FIFO space before sending its first response; the trace ends here because no SETUP packet has been delivered yet (Task 4 adds that).

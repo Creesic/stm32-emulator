@@ -341,7 +341,7 @@ impl Peripherals {
     pub fn modeled_range(name: &str, base: u32, size: u32) -> (u32, u32) {
         match name {
             "FSMC" => (0x6000_0000, 0xA000_1000),
-            "OTG_FS_GLOBAL" => (base, base + 0x2000),
+            "OTG_FS_GLOBAL" => (base, base + 0x7000),
             "SCB" => (base, base + 0x008f),
             _ => (base, base + size),
         }

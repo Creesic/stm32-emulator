@@ -6,12 +6,27 @@ use crate::{ext_devices::{usb_cdc_tcp::UsbCdcTcp, ExtDevices}, system::System};
 
 use super::Peripheral;
 
+#[derive(Default, Clone, Copy)]
+struct EndpointRegs {
+    ctl: u32,
+    int: u32,
+    tsiz: u32,
+}
+
 pub struct OtgFs {
     bridge: Option<Rc<RefCell<UsbCdcTcp>>>,
     registers: BTreeMap<u32, u32>,
     global_interrupt_status: u32,
     global_interrupt_mask: u32,
     host_attached: bool,
+    dcfg: u32,
+    dctl: u32,
+    diep_mask: u32,
+    doep_mask: u32,
+    daint_mask: u32,
+    diep_empty_mask: u32,
+    ep_in: [EndpointRegs; Self::NUM_ENDPOINTS],
+    ep_out: [EndpointRegs; Self::NUM_ENDPOINTS],
 }
 
 impl OtgFs {
@@ -30,6 +45,29 @@ impl OtgFs {
     const GRSTCTL_SELF_CLEARING: u32 =
         Self::GRSTCTL_CSRST | Self::GRSTCTL_RXFFLSH | Self::GRSTCTL_TXFFLSH;
 
+    // Struct-offset constants from ChibiOS's stm32_otg_t (stm32_otg.h),
+    // not the SVD's per-sub-block names — see usb_trace_notes.md for why.
+    const DCFG: u32 = 0x0800;
+    const DCTL: u32 = 0x0804;
+    const DIEPMSK: u32 = 0x0810;
+    const DOEPMSK: u32 = 0x0814;
+    const DAINT: u32 = 0x0818;
+    const DAINTMSK: u32 = 0x081c;
+    const DIEPEMPMSK: u32 = 0x0834;
+
+    const NUM_ENDPOINTS: usize = 6;
+    const DIEP_BASE: u32 = 0x0900;
+    const DOEP_BASE: u32 = 0x0b00;
+    const EP_STRIDE: u32 = 0x0020;
+    const EP_CTL_OFFSET: u32 = 0x00;
+    const EP_INT_OFFSET: u32 = 0x08;
+    const EP_TSIZ_OFFSET: u32 = 0x10;
+    const DTXFSTS_OFFSET: u32 = 0x18;
+
+    const GINTSTS_IEPINT: u32 = 1 << 18;
+    const GINTSTS_OEPINT: u32 = 1 << 19;
+    const DOEPINT_XFRC: u32 = 1 << 0;
+
     pub fn new(name: &str, ext_devices: &ExtDevices) -> Option<Box<dyn Peripheral>> {
         if name == "OTG_FS_GLOBAL" {
             Some(Box::new(Self {
@@ -38,6 +76,14 @@ impl OtgFs {
                 global_interrupt_status: 0,
                 global_interrupt_mask: 0,
                 host_attached: false,
+                dcfg: 0,
+                dctl: 0,
+                diep_mask: 0,
+                doep_mask: 0,
+                daint_mask: 0,
+                diep_empty_mask: 0,
+                ep_in: [EndpointRegs::default(); Self::NUM_ENDPOINTS],
+                ep_out: [EndpointRegs::default(); Self::NUM_ENDPOINTS],
             }))
         } else {
             None
@@ -51,6 +97,14 @@ impl OtgFs {
             global_interrupt_status: 0,
             global_interrupt_mask: 0,
             host_attached: false,
+            dcfg: 0,
+            dctl: 0,
+            diep_mask: 0,
+            doep_mask: 0,
+            daint_mask: 0,
+            diep_empty_mask: 0,
+            ep_in: [EndpointRegs::default(); Self::NUM_ENDPOINTS],
+            ep_out: [EndpointRegs::default(); Self::NUM_ENDPOINTS],
         }
     }
 
@@ -62,8 +116,52 @@ impl OtgFs {
         self.global_interrupt_mask = value;
     }
 
+    fn decode_endpoint(base: u32, offset: u32) -> Option<(usize, u32)> {
+        if offset < base {
+            return None;
+        }
+        let rel = offset - base;
+        let ep = (rel / Self::EP_STRIDE) as usize;
+        (ep < Self::NUM_ENDPOINTS).then_some((ep, rel % Self::EP_STRIDE))
+    }
+
+    fn daint(&self) -> u32 {
+        let mut value = 0;
+        for (i, ep) in self.ep_in.iter().enumerate() {
+            if ep.int != 0 {
+                value |= 1 << i;
+            }
+        }
+        for (i, ep) in self.ep_out.iter().enumerate() {
+            if ep.int != 0 {
+                value |= 1 << (16 + i);
+            }
+        }
+        value
+    }
+
+    fn effective_gintsts(&self) -> u32 {
+        let daint = self.daint() & self.daint_mask;
+        let mut status = self.global_interrupt_status;
+        if daint & 0x0000_ffff != 0 {
+            status |= Self::GINTSTS_IEPINT;
+        }
+        if daint & 0xffff_0000 != 0 {
+            status |= Self::GINTSTS_OEPINT;
+        }
+        status
+    }
+
+    fn raise_in_endpoint_interrupt(&mut self, ep: usize, bits: u32) {
+        self.ep_in[ep].int |= bits;
+    }
+
+    fn raise_out_endpoint_interrupt(&mut self, ep: usize, bits: u32) {
+        self.ep_out[ep].int |= bits;
+    }
+
     pub fn interrupt_pending(&self) -> bool {
-        self.global_interrupt_status & self.global_interrupt_mask != 0
+        self.effective_gintsts() & self.global_interrupt_mask != 0
     }
 
     pub fn virtual_host_reset(&mut self) {
@@ -71,15 +169,57 @@ impl OtgFs {
     }
 
     fn register_read(&self, offset: u32) -> u32 {
+        if let Some((ep, reg)) = Self::decode_endpoint(Self::DIEP_BASE, offset) {
+            return match reg {
+                Self::EP_CTL_OFFSET => self.ep_in[ep].ctl,
+                Self::EP_INT_OFFSET => self.ep_in[ep].int,
+                Self::EP_TSIZ_OFFSET => self.ep_in[ep].tsiz,
+                Self::DTXFSTS_OFFSET => 0, // FIFO space accounting arrives in Task 4
+                _ => 0,
+            };
+        }
+        if let Some((ep, reg)) = Self::decode_endpoint(Self::DOEP_BASE, offset) {
+            return match reg {
+                Self::EP_CTL_OFFSET => self.ep_out[ep].ctl,
+                Self::EP_INT_OFFSET => self.ep_out[ep].int,
+                Self::EP_TSIZ_OFFSET => self.ep_out[ep].tsiz,
+                _ => 0,
+            };
+        }
         match offset {
             Self::GRSTCTL => self.registers.get(&offset).copied().unwrap_or(0) | 0x8000_0000,
-            Self::GINTSTS => self.global_interrupt_status,
+            Self::GINTSTS => self.effective_gintsts(),
             Self::GINTMSK => self.global_interrupt_mask,
+            Self::DCFG => self.dcfg,
+            Self::DCTL => self.dctl,
+            Self::DIEPMSK => self.diep_mask,
+            Self::DOEPMSK => self.doep_mask,
+            Self::DAINT => self.daint(),
+            Self::DAINTMSK => self.daint_mask,
+            Self::DIEPEMPMSK => self.diep_empty_mask,
             _ => self.registers.get(&offset).copied().unwrap_or(0),
         }
     }
 
     fn register_write(&mut self, offset: u32, value: u32) {
+        if let Some((ep, reg)) = Self::decode_endpoint(Self::DIEP_BASE, offset) {
+            match reg {
+                Self::EP_CTL_OFFSET => self.ep_in[ep].ctl = value,
+                Self::EP_INT_OFFSET => self.ep_in[ep].int &= !value,
+                Self::EP_TSIZ_OFFSET => self.ep_in[ep].tsiz = value,
+                _ => {}
+            }
+            return;
+        }
+        if let Some((ep, reg)) = Self::decode_endpoint(Self::DOEP_BASE, offset) {
+            match reg {
+                Self::EP_CTL_OFFSET => self.ep_out[ep].ctl = value,
+                Self::EP_INT_OFFSET => self.ep_out[ep].int &= !value,
+                Self::EP_TSIZ_OFFSET => self.ep_out[ep].tsiz = value,
+                _ => {}
+            }
+            return;
+        }
         match offset {
             Self::GINTSTS => self.global_interrupt_status &= !value,
             Self::GINTMSK => self.global_interrupt_mask = value,
@@ -87,6 +227,12 @@ impl OtgFs {
                 self.registers
                     .insert(offset, value & !Self::GRSTCTL_SELF_CLEARING);
             }
+            Self::DCFG => self.dcfg = value,
+            Self::DCTL => self.dctl = value,
+            Self::DIEPMSK => self.diep_mask = value,
+            Self::DOEPMSK => self.doep_mask = value,
+            Self::DAINTMSK => self.daint_mask = value,
+            Self::DIEPEMPMSK => self.diep_empty_mask = value,
             _ => {
                 self.registers.insert(offset, value);
             }
@@ -143,6 +289,49 @@ mod tests {
         assert_eq!(
             otg.register_read(OtgFs::GRSTCTL) & OtgFs::GRSTCTL_SELF_CLEARING,
             0
+        );
+    }
+
+    #[test]
+    fn device_control_register_retains_written_value() {
+        let mut otg = OtgFs::for_test();
+        otg.register_write(OtgFs::DCTL, 0x0000_0002);
+        assert_eq!(otg.register_read(OtgFs::DCTL), 0x0000_0002);
+    }
+
+    #[test]
+    fn endpoint_zero_and_endpoint_one_in_control_registers_are_independent() {
+        let mut otg = OtgFs::for_test();
+        otg.register_write(OtgFs::DIEP_BASE, 0x1000_8040);
+        otg.register_write(OtgFs::DIEP_BASE + OtgFs::EP_STRIDE, 0x0800_0000);
+        assert_eq!(otg.register_read(OtgFs::DIEP_BASE), 0x1000_8040);
+        assert_eq!(
+            otg.register_read(OtgFs::DIEP_BASE + OtgFs::EP_STRIDE),
+            0x0800_0000
+        );
+    }
+
+    #[test]
+    fn endpoint_interrupt_bits_clear_on_write_one() {
+        let mut otg = OtgFs::for_test();
+        otg.raise_in_endpoint_interrupt(0, 0xffff_ffff);
+        otg.register_write(OtgFs::DIEP_BASE + OtgFs::EP_INT_OFFSET, 0xffff_ffff);
+        assert_eq!(
+            otg.register_read(OtgFs::DIEP_BASE + OtgFs::EP_INT_OFFSET),
+            0
+        );
+    }
+
+    #[test]
+    fn unmasked_endpoint_zero_out_interrupt_raises_oepint_and_global_interrupt() {
+        let mut otg = OtgFs::for_test();
+        otg.write_global_interrupt_mask(OtgFs::GINTSTS_OEPINT);
+        otg.register_write(OtgFs::DAINTMSK, 0x0001_0000);
+        otg.raise_out_endpoint_interrupt(0, OtgFs::DOEPINT_XFRC);
+        assert!(otg.interrupt_pending());
+        assert_eq!(
+            otg.register_read(OtgFs::GINTSTS) & OtgFs::GINTSTS_OEPINT,
+            OtgFs::GINTSTS_OEPINT
         );
     }
 }
