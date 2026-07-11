@@ -18,7 +18,10 @@ foreach ($line in @(
     'load: rusefi.bin',
     'start: 0x20000000',
     'start: 0x20020000',
-    'start: 0x2007c000'
+    'start: 0x2007c000',
+    'peripheral: OTG_FS_GLOBAL',
+    'listen: 127.0.0.1:29000',
+    'max_buffered_bytes: 65536'
 )) {
     if (-not $config.Contains($line)) {
         throw "Configuration contract is missing: $line"
