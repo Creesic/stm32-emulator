@@ -6,12 +6,13 @@ use crate::system::System;
 pub struct Rcc {
     cfgr: u32,
     csr: u32,
+    bdcr: u32,
 }
 
 impl Rcc {
     pub fn new(name: &str) -> Option<Box<dyn Peripheral>> {
         if name == "RCC" {
-            Some(Box::new(Rcc { cfgr: 0, csr: 0 }))
+            Some(Box::new(Rcc { cfgr: 0, csr: 0, bdcr: 0 }))
         } else {
             None
         }
@@ -22,6 +23,14 @@ impl Rcc {
     }
 
     fn csr_after_write(value: u32) -> u32 {
+        if value & 0x0000_0001 != 0 {
+            value | 0x0000_0002
+        } else {
+            value & !0x0000_0002
+        }
+    }
+
+    fn bdcr_after_write(value: u32) -> u32 {
         if value & 0x0000_0001 != 0 {
             value | 0x0000_0002
         } else {
@@ -44,6 +53,7 @@ impl Peripheral for Rcc {
                 self.cfgr
             }
             0x0074 => self.csr,
+            0x0070 => self.bdcr,
             _ => 0,
         }
     }
@@ -52,6 +62,7 @@ impl Peripheral for Rcc {
         match offset {
             0x0008 => self.cfgr = Self::cfgr_after_write(value),
             0x0074 => self.csr = Self::csr_after_write(value),
+            0x0070 => self.bdcr = Self::bdcr_after_write(value),
             _ => {}
         }
     }
@@ -69,5 +80,10 @@ mod tests {
     #[test]
     fn csr_reports_lsi_ready_when_lsi_is_enabled() {
         assert_eq!(Rcc::csr_after_write(0x0000_0001) & 0x0000_0002, 0x0000_0002);
+    }
+
+    #[test]
+    fn bdcr_reports_lse_ready_when_lse_is_enabled() {
+        assert_eq!(Rcc::bdcr_after_write(0x0000_0001) & 0x0000_0002, 0x0000_0002);
     }
 }

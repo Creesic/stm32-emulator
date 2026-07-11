@@ -9,6 +9,12 @@ pub struct Scb {
 }
 
 impl Scb {
+    // ICSR bit 11 (RETTOBASE): set when no other exception is active, so the
+    // current one is returning to base (thread) level. ChibiOS's ARMv7-M port
+    // epilogue only performs its post-IRQ thread switch when it observes this
+    // bit set; since our NVIC never nests interrupts, it's always set.
+    pub const ICSR_RETTOBASE: u32 = 1 << 11;
+
     pub fn new(name: &str) -> Option<Box<dyn Peripheral>> {
         if name == "SCB" {
             Some(Box::new(Self::default()))
@@ -24,11 +30,16 @@ impl Scb {
     fn read_cpacr(&self) -> u32 {
         self.cpacr
     }
+
+    fn read_icsr(&self) -> u32 {
+        Self::ICSR_RETTOBASE
+    }
 }
 
 impl Peripheral for Scb {
     fn read(&mut self, _sys: &System, offset: u32) -> u32 {
         match offset {
+            0x0004 => self.read_icsr(),
             0x0088 => self.read_cpacr(),
             _ => 0,
         }
@@ -63,5 +74,11 @@ mod tests {
         scb.write_cpacr(0x00f0_0000);
 
         assert_eq!(scb.read_cpacr(), 0x00f0_0000);
+    }
+
+    #[test]
+    fn icsr_read_reports_rettobase_since_nested_interrupts_are_unsupported() {
+        let scb = Scb::default();
+        assert_eq!(scb.read_icsr() & Scb::ICSR_RETTOBASE, Scb::ICSR_RETTOBASE);
     }
 }

@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 pub mod dma;
+pub mod dwt;
 pub mod flash;
 pub mod fsmc;
 pub mod gpio;
 pub mod i2c;
 pub mod nvic;
+pub mod otg_fs;
 pub mod pwr;
 pub mod rcc;
+pub mod rtc;
 pub mod scb;
 pub mod spi;
 pub mod sw_spi;
@@ -16,13 +19,16 @@ pub mod tim11;
 pub mod usart;
 
 use dma::*;
+use dwt::*;
 use flash::*;
 use fsmc::*;
 use gpio::*;
 use i2c::*;
 use nvic::*;
+use otg_fs::*;
 use pwr::*;
 use rcc::*;
+use rtc::*;
 use scb::*;
 use serde::Deserialize;
 use spi::*;
@@ -71,6 +77,39 @@ mod tests {
     }
 
     #[test]
+    fn pwr_csr1_reports_standby_ready_after_observed_enable() {
+        assert_eq!(
+            crate::peripherals::pwr::Pwr::csr1_after_csr1_write(0x0000_0200) & 0x0000_0008,
+            0x0000_0008
+        );
+    }
+
+    #[test]
+    fn rtc_isr_reports_init_ready_after_init_request() {
+        assert_eq!(
+            crate::peripherals::rtc::Rtc::isr_after_write(0x0000_0080) & 0x0000_0040,
+            0x0000_0040
+        );
+    }
+
+    #[test]
+    fn masked_usb_reset_interrupt_does_not_become_pending() {
+        let mut otg = crate::peripherals::otg_fs::OtgFs::for_test();
+        otg.set_global_interrupt_status(crate::peripherals::otg_fs::OtgFs::USB_RESET);
+        assert!(!otg.interrupt_pending());
+        otg.write_global_interrupt_mask(crate::peripherals::otg_fs::OtgFs::USB_RESET);
+        assert!(otg.interrupt_pending());
+    }
+
+    #[test]
+    fn virtual_host_reset_sets_the_masked_reset_interrupt() {
+        let mut otg = crate::peripherals::otg_fs::OtgFs::for_test();
+        otg.write_global_interrupt_mask(crate::peripherals::otg_fs::OtgFs::USB_RESET);
+        otg.virtual_host_reset();
+        assert!(otg.interrupt_pending());
+    }
+
+    #[test]
     fn flash_acr_retains_latency_and_cache_bits() {
         assert_eq!(
             crate::peripherals::flash::Flash::acr_after_write(0x0000_0707),
@@ -93,6 +132,20 @@ mod tests {
             super::Peripherals::modeled_range("SCB", 0xe000_ed00, 4),
             (0xe000_ed00, 0xe000_ed8f),
         );
+    }
+
+    #[test]
+    fn core_systick_model_covers_control_register() {
+        let mut peripherals = super::Peripherals::default();
+        peripherals.register_core_peripherals();
+        assert!(super::Peripherals::get_peripheral(&peripherals.peripherals, 0xe000_e010).is_some());
+    }
+
+    #[test]
+    fn core_scb_model_covers_interrupt_control_register() {
+        let mut peripherals = super::Peripherals::default();
+        peripherals.register_core_peripherals();
+        assert!(super::Peripherals::get_peripheral(&peripherals.peripherals, 0xe000_ed04).is_some());
     }
 }
 
@@ -144,6 +197,8 @@ impl Peripherals {
             .or_else(|| Fsmc::new(&name, ext_devices))
             .or_else(|| Rcc::new(&name))
             .or_else(|| Pwr::new(&name))
+            .or_else(|| OtgFs::new(&name, ext_devices))
+            .or_else(|| Rtc::new(&name))
             .or_else(|| Flash::new(&name))
             .or_else(|| Tim11::new(&name))
             .or_else(|| I2c::new(&name))
@@ -155,6 +210,32 @@ impl Peripherals {
                 start,
                 end,
                 peripheral: RefCell::new(p),
+            });
+        }
+    }
+
+    fn register_core_peripherals(&mut self) {
+        // Pushed in ascending start-address order: get_peripheral binary
+        // searches this vec, and this function doesn't sort it itself.
+        if let Some(peripheral) = Dwt::new("DWT") {
+            self.peripherals.push(PeripheralSlot {
+                start: 0xe000_1000,
+                end: 0xe000_1008,
+                peripheral: RefCell::new(peripheral),
+            });
+        }
+        if let Some(peripheral) = SysTick::new("STK") {
+            self.peripherals.push(PeripheralSlot {
+                start: 0xe000_e010,
+                end: 0xe000_e01c,
+                peripheral: RefCell::new(peripheral),
+            });
+        }
+        if let Some(peripheral) = Scb::new("SCB") {
+            self.peripherals.push(PeripheralSlot {
+                start: 0xe000_ed00,
+                end: 0xe000_ed8f,
+                peripheral: RefCell::new(peripheral),
             });
         }
     }
@@ -228,6 +309,8 @@ impl Peripherals {
             }
         }
 
+        peripherals.register_core_peripherals();
+
         for sw_spi_config in config.software_spi.unwrap_or_default() {
             SoftwareSpi::register(
                 sw_spi_config,
@@ -258,6 +341,7 @@ impl Peripherals {
     pub fn modeled_range(name: &str, base: u32, size: u32) -> (u32, u32) {
         match name {
             "FSMC" => (0x6000_0000, 0xA000_1000),
+            "OTG_FS_GLOBAL" => (base, base + 0x2000),
             "SCB" => (base, base + 0x008f),
             _ => (base, base + size),
         }
@@ -356,11 +440,19 @@ impl Peripherals {
             trace!("write: {} write=0x{:08x}", self.addr_desc(addr), value);
         }
     }
+
+    pub fn poll(&self, sys: &System) {
+        for peripheral in &self.peripherals {
+            peripheral.peripheral.borrow_mut().poll(sys);
+        }
+    }
 }
 
 pub trait Peripheral {
     fn read(&mut self, sys: &System, offset: u32) -> u32;
     fn write(&mut self, sys: &System, offset: u32, value: u32);
+
+    fn poll(&mut self, _sys: &System) {}
 
     fn read_dma(&mut self, sys: &System, offset: u32, size: usize) -> VecDeque<u8> {
         let mut v = VecDeque::with_capacity(size);

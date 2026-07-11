@@ -69,6 +69,10 @@ fn disassemble_instruction(diassembler: &Capstone, uc: &Unicorn<()>, pc: u64) ->
     return "??".to_string();
 }
 
+fn stop_address_state(pc: u32, r3: u32) -> String {
+    format!("Stop address reached at pc=0x{pc:08x} r3=0x{r3:08x}")
+}
+
 pub fn dump_stack(uc: &mut Unicorn<()>, count: usize) {
     let mut sp = uc.reg_read(RegisterARM::SP).unwrap();
 
@@ -134,6 +138,9 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
             }
 
             if n & PUMP_EVENT_INST_INTERVAL == 0 {
+                let sys = System { uc: RefCell::new(uc), p: p.clone(), d: d.clone() };
+                d.poll();
+                p.poll(&sys);
                 for fb in &framebuffers.sdls {
                     fb.borrow_mut().maybe_redraw();
                 }
@@ -178,6 +185,13 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
                     let sys = System { uc: RefCell::new(uc), p: p.clone(), d: d.clone() };
                     p.nvic.borrow_mut().return_from_interrupt(&sys);
                     p.nvic.borrow_mut().run_pending_interrupts(&sys, vector_table_addr);
+                }
+                2 => {
+                    // svc instruction. Some RTOS ports (e.g. ChibiOS's ARMv7-M
+                    // port) use this instead of PendSV to perform their
+                    // scheduler context switch from within an ISR epilogue.
+                    let sys = System { uc: RefCell::new(uc), p: p.clone(), d: d.clone() };
+                    p.nvic.borrow_mut().enter_svcall(&sys, vector_table_addr);
                 }
                 3 => {
                     error!("intr_hook intno={:08x}", exception);
@@ -231,7 +245,8 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
             0,
             max_instructions.unwrap_or(0) as usize,
         ).map_err(UniErr);
-        pc = uc.reg_read(RegisterARM::PC).expect("failed to get pc");
+        let returned_pc = uc.reg_read(RegisterARM::PC).expect("failed to get pc");
+        pc = thumb(returned_pc);
 
         if STOP_REQUESTED.load(Ordering::Relaxed) {
             info!("Stop requested");
@@ -247,12 +262,13 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
                 pc = thumb(pc);
                 continue;
             } else {
-                bail!("{e} at pc=0x{pc:08x}");
+                bail!("{e} at pc=0x{returned_pc:08x}");
             }
         }
 
-        if args.stop_addr == Some(pc as u32) {
-            info!("Stop address reached, stopping");
+        if args.stop_addr == Some(returned_pc as u32) {
+            let r3 = uc.reg_read(RegisterARM::R3).expect("failed to read R3");
+            info!("{}", stop_address_state(returned_pc as u32, r3 as u32));
             break;
         }
 
@@ -307,5 +323,27 @@ mod tests {
         uc.emu_start(0x1001, 0x1004, 0, 1).unwrap();
 
         assert_eq!(uc.reg_read(RegisterARM::PC).unwrap(), 0x1004);
+    }
+
+    #[test]
+    fn cortex_m7_executes_thumb_wfi_without_invalid_instruction() {
+        let wfi_idle_loop = [0x30, 0xbf, 0xfd, 0xe7];
+        let mut uc = initialize_arm_engine(CpuModel::CortexM7).unwrap();
+        uc.mem_map(0x1000, 0x1000, Prot::ALL).unwrap();
+        uc.mem_write(0x1000, &wfi_idle_loop).unwrap();
+
+        uc.emu_start(0x1001, 0, 0, 2).unwrap();
+        let next_pc = uc.reg_read(RegisterARM::PC).unwrap();
+        assert_eq!(next_pc, 0x1002);
+        assert!(uc.emu_start(thumb(next_pc), 0, 0, 1).is_ok());
+        assert_eq!(uc.reg_read(RegisterARM::PC).unwrap(), 0x1000);
+    }
+
+    #[test]
+    fn stop_address_state_reports_runtime_r3() {
+        assert_eq!(
+            stop_address_state(0x0020_a134, 0x4002_3800),
+            "Stop address reached at pc=0x0020a134 r3=0x40023800"
+        );
     }
 }

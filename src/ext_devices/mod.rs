@@ -5,12 +5,14 @@ mod usart_probe;
 mod display;
 mod lcd;
 mod touchscreen;
+pub mod usb_cdc_tcp;
 
 use spi_flash::{SpiFlashConfig, SpiFlash};
 use usart_probe::{UsartProbeConfig, UsartProbe};
 use display::{DisplayConfig, Display};
 use lcd::{LcdConfig, Lcd};
 use touchscreen::{TouchscreenConfig, Touchscreen};
+use usb_cdc_tcp::{UsbCdcTcpConfig, UsbCdcTcp};
 
 use std::{rc::Rc, cell::RefCell};
 use serde::Deserialize;
@@ -26,6 +28,7 @@ pub struct ExtDevicesConfig {
     pub display: Option<Vec<DisplayConfig>>,
     pub lcd: Option<Vec<LcdConfig>>,
     pub touchscreen: Option<Vec<TouchscreenConfig>>,
+    pub usb_cdc_tcp: Option<Vec<UsbCdcTcpConfig>>,
 }
 
 pub struct ExtDevices {
@@ -34,6 +37,7 @@ pub struct ExtDevices {
     pub displays: Vec<Rc<RefCell<Display>>>,
     pub lcds: Vec<Rc<RefCell<Lcd>>>,
     pub touchscreens: Vec<Rc<RefCell<Touchscreen>>>,
+    pub usb_cdc_tcps: Vec<Rc<RefCell<UsbCdcTcp>>>,
 }
 
 impl ExtDevices {
@@ -68,6 +72,20 @@ impl ExtDevices {
             .next()
             .map(|d| d.clone() as Rc<RefCell<dyn ExtDevice<u32, u32>>>)
     }
+
+    pub fn find_usb_cdc_tcp(&self, peri_name: &str) -> Option<Rc<RefCell<UsbCdcTcp>>> {
+        self.usb_cdc_tcps.iter()
+            .find(|d| d.borrow().config.peripheral == peri_name)
+            .cloned()
+    }
+
+    pub fn poll(&self) {
+        for bridge in &self.usb_cdc_tcps {
+            if let Err(error) = bridge.borrow_mut().poll() {
+                warn!("USB CDC TCP bridge error: {error:#}");
+            }
+        }
+    }
 }
 
 impl ExtDevicesConfig {
@@ -92,7 +110,11 @@ impl ExtDevicesConfig {
             .map(|config| Touchscreen::new(config, gpio, framebuffers).map(RefCell::new).map(Rc::new))
             .collect::<Result<_>>()?;
 
-        Ok(ExtDevices { spi_flashes, usart_probes, displays, lcds, touchscreens })
+        let usb_cdc_tcps = self.usb_cdc_tcp.unwrap_or_default().into_iter()
+            .map(|config| UsbCdcTcp::new(config).map(RefCell::new).map(Rc::new))
+            .collect::<Result<_>>()?;
+
+        Ok(ExtDevices { spi_flashes, usart_probes, displays, lcds, touchscreens, usb_cdc_tcps })
     }
 }
 
@@ -103,4 +125,52 @@ pub trait ExtDevice<A, T> {
     fn connect_peripheral<'a>(&mut self, peri_name: &str) -> String;
     fn read(&mut self, sys: &System, addr: A) -> T;
     fn write(&mut self, sys: &System, addr: A, v: T);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::{Read, Write},
+        net::TcpStream,
+        time::Duration,
+    };
+
+    use super::usb_cdc_tcp::{UsbCdcTcp, UsbCdcTcpConfig};
+
+    #[test]
+    fn tcp_client_exchanges_binary_bytes() {
+        let mut bridge = UsbCdcTcp::new(UsbCdcTcpConfig {
+            peripheral: "OTG_FS_GLOBAL".to_owned(),
+            listen: "127.0.0.1:0".to_owned(),
+            max_buffered_bytes: 64,
+        })
+        .unwrap();
+        let mut client = TcpStream::connect(bridge.local_addr().unwrap()).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+
+        bridge.poll().unwrap();
+        bridge.push_from_device(&[0x00, 0xff, 0x42]);
+        bridge.poll().unwrap();
+
+        let mut received = [0; 3];
+        client.read_exact(&mut received).unwrap();
+        assert_eq!(received, [0x00, 0xff, 0x42]);
+
+        client.write_all(&[0x10, 0x20]).unwrap();
+        for _ in 0..10 {
+            bridge.poll().unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(bridge.take_for_device(64), vec![0x10, 0x20]);
+    }
+
+    #[test]
+    fn usb_cdc_tcp_configuration_deserializes() {
+        let config: super::ExtDevicesConfig = serde_yaml::from_str(
+            "usb_cdc_tcp:\n  - peripheral: OTG_FS_GLOBAL\n    listen: 127.0.0.1:29000\n    max_buffered_bytes: 64\n",
+        )
+        .unwrap();
+
+        assert_eq!(config.usb_cdc_tcp.unwrap()[0].peripheral, "OTG_FS_GLOBAL");
+    }
 }

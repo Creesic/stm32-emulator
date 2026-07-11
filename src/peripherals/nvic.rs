@@ -22,6 +22,9 @@ const IRQ_OFFSET: i32 = 16;
 pub mod irq {
     pub const PENDSV: i32 = -2;
     pub const SYSTICK: i32 = -1;
+    // SVCall is architecturally fixed exception #11 (vector table word 11);
+    // -5 here makes read_vector_addr's (IRQ_OFFSET + irq) formula land on it.
+    pub const SVCALL: i32 = -5;
 }
 
 // This is all poorly implemented. If this is not making much sense, it might be
@@ -59,8 +62,16 @@ impl Nvic {
     }
 
     fn are_interrupts_disabled(sys: &System) -> bool {
-        let primask = sys.uc.borrow().reg_read(RegisterARM::PRIMASK).unwrap();
-        primask != 0
+        let uc = sys.uc.borrow();
+        let primask = uc.reg_read(RegisterARM::PRIMASK).unwrap();
+        // ChibiOS's chSysLock()/chSysUnlock() (and this ARMv7-M port's own
+        // __port_irq_epilogue) mask interrupts via BASEPRI, not PRIMASK. We
+        // don't model per-interrupt priorities, so treat any nonzero BASEPRI
+        // as masking everything -- SVCall is entered directly by emulator.rs
+        // regardless (matching this port's SVCall priority being configured
+        // above any BASEPRI it raises).
+        let basepri = uc.reg_read(RegisterARM::BASEPRI).unwrap();
+        primask != 0 || basepri != 0
     }
 
     pub fn run_pending_interrupts(&mut self, sys: &System, vector_table_addr: u32) {
@@ -131,6 +142,14 @@ impl Nvic {
         uc.reg_write(RegisterARM::PC, vector as u64).unwrap();
 
         self.in_interrupt = true;
+    }
+
+    /// Enters the SVCall exception. Unlike peripheral IRQs, an `svc`
+    /// instruction is a synchronous, firmware-requested trap (used by
+    /// ChibiOS's ARMv7-M port for its actual scheduler context switch), so
+    /// it's entered directly rather than through the pending-IRQ queue.
+    pub fn enter_svcall(&mut self, sys: &System, vector_table_addr: u32) {
+        self.run_interrupt(sys, vector_table_addr, irq::SVCALL);
     }
 
     pub fn return_from_interrupt(&mut self, sys: &System) {
@@ -216,21 +235,27 @@ impl Nvic {
         };
         let mut sp = uc.reg_read(sp_reg).unwrap();
 
-        let mut push_reg = |reg| {
-            let v = uc.reg_read(reg).unwrap() as u32;
-            //trace!("push sp=0x{:08x} {:5?}=0x{:08x}", sp, reg, v);
+        let mut push_word = |uc: &mut Unicorn<()>, v: u32| {
             sp -= 4;
             uc.mem_write(sp, &v.to_le_bytes())
                 .expect("Invalid SP pointer during interrupt");
         };
 
         if fpca {
+            // Real Cortex-M7 extended frames are 104 bytes (26 words): a
+            // reserved word for 8-byte stack alignment sits above FPSCR, at
+            // the frame's highest address, so (sp only decreasing from here)
+            // it's pushed first. Firmware that computes frame size from
+            // this constant (e.g. ChibiOS's ARMv7-M port) depends on it.
+            push_word(uc, 0);
             for reg in Self::CONTEXT_REGS_EXTENDED {
-                push_reg(reg);
+                let v = uc.reg_read(reg).unwrap() as u32;
+                push_word(uc, v);
             }
         }
         for reg in Self::CONTEXT_REGS {
-            push_reg(reg);
+            let v = uc.reg_read(reg).unwrap() as u32;
+            push_word(uc, v);
         }
         uc.reg_write(RegisterARM::SP, sp).unwrap();
     }
@@ -243,23 +268,25 @@ impl Nvic {
         };
         let mut sp = uc.reg_read(sp_reg).unwrap();
 
-        let mut pop_reg = |reg| {
+        let mut pop_word = |uc: &mut Unicorn<()>| -> u32 {
             let mut v = [0, 0, 0, 0];
             uc.mem_read(sp, &mut v)
                 .expect("Invalid SP pointer during interrupt return");
-            let v = u32::from_le_bytes(v);
-            //trace!("pop sp=0x{:08x} {:5?}=0x{:08x}", sp, reg, v);
             sp += 4;
-            uc.reg_write(reg, v as u64).unwrap();
+            u32::from_le_bytes(v)
         };
 
         for reg in Self::CONTEXT_REGS.iter().rev() {
-            pop_reg(*reg);
+            let v = pop_word(uc);
+            uc.reg_write(*reg, v as u64).unwrap();
         }
         if fpca {
             for reg in Self::CONTEXT_REGS_EXTENDED.iter().rev() {
-                pop_reg(*reg);
+                let v = pop_word(uc);
+                uc.reg_write(*reg, v as u64).unwrap();
             }
+            // Discard the reserved alignment word pushed above FPSCR (see push_regs).
+            sp += 4;
         }
         uc.reg_write(RegisterARM::SP, sp).unwrap();
     }
