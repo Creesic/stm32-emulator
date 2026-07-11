@@ -101,12 +101,18 @@ impl RunningEmulator {
             )));
         }
 
-        let mut child = Command::new(executable)
+        let mut command = Command::new(executable);
+        command
             .args(build_emulator_arguments(config_path, verbosity))
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(ProcessError::io)?;
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+
+            command.creation_flags(0x0800_0000);
+        }
+        let mut child = command.spawn().map_err(ProcessError::io)?;
         let (sender, receiver) = mpsc::channel();
         let stdout = child.stdout.take().expect("stdout was requested as piped");
         let stderr = child.stderr.take().expect("stderr was requested as piped");

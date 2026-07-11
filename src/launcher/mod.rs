@@ -3,17 +3,31 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub mod process;
 pub mod registry;
 pub mod ui_state;
+pub mod workspace;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EmulationSupport {
     Runnable,
     Partial,
     Unsupported,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LauncherCpuModel {
+    CortexM4,
+    CortexM7,
+}
+
+impl Default for LauncherCpuModel {
+    fn default() -> Self {
+        Self::CortexM4
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -82,6 +96,7 @@ pub struct MemoryRegion {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedProfile {
     pub variant: KnownVariant,
+    pub cpu_model: LauncherCpuModel,
     pub vector_table: u32,
     pub firmware: PathBuf,
     pub svd: PathBuf,
@@ -100,6 +115,7 @@ impl ResolvedProfile {
 
         Ok(Self {
             variant,
+            cpu_model: template.cpu_model,
             vector_table: template.vector_table,
             firmware,
             svd,
@@ -108,6 +124,7 @@ impl ResolvedProfile {
     }
 
     pub fn manual(
+        cpu_model: LauncherCpuModel,
         firmware: PathBuf,
         svd: PathBuf,
         vector_table: u32,
@@ -118,6 +135,7 @@ impl ResolvedProfile {
     ) -> Self {
         Self {
             variant: KnownVariant::manual(),
+            cpu_model,
             vector_table,
             firmware,
             svd,
@@ -141,6 +159,7 @@ impl ResolvedProfile {
     pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
         serde_yaml::to_string(&YamlConfig {
             cpu: YamlCpu {
+                model: self.cpu_model,
                 svd: self.svd.to_string_lossy(),
                 vector_table: self.vector_table,
             },
@@ -182,6 +201,7 @@ impl std::error::Error for ProfileError {}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ProfileTemplate {
+    cpu_model: LauncherCpuModel,
     vector_table: u32,
     regions: &'static [MemoryRegion],
 }
@@ -226,6 +246,7 @@ const PROTEUS_F7_REGIONS: [MemoryRegion; 6] = [
 ];
 
 const PROTEUS_F7_PROFILE: ProfileTemplate = ProfileTemplate {
+    cpu_model: LauncherCpuModel::CortexM7,
     vector_table: 0x0020_0000,
     regions: &PROTEUS_F7_REGIONS,
 };
@@ -238,6 +259,7 @@ struct YamlConfig<'a> {
 
 #[derive(Serialize)]
 struct YamlCpu<'a> {
+    model: LauncherCpuModel,
     svd: std::borrow::Cow<'a, str>,
     vector_table: u32,
 }

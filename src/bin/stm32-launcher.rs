@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -12,7 +13,12 @@ use stm32_emulator::launcher::process::{
 };
 use stm32_emulator::launcher::registry::{all_variants, support_summary};
 use stm32_emulator::launcher::ui_state::LauncherState;
-use stm32_emulator::launcher::{EmulationSupport, KnownVariant, ResolvedProfile};
+use stm32_emulator::launcher::workspace::{
+    SavedLauncherState, WindowPlacement, WorkspaceStore,
+};
+use stm32_emulator::launcher::{
+    EmulationSupport, KnownVariant, LauncherCpuModel, ResolvedProfile,
+};
 
 const BG: [f32; 4] = [0.086, 0.106, 0.133, 1.0];
 const PANEL: [f32; 4] = [0.133, 0.165, 0.208, 1.0];
@@ -23,6 +29,7 @@ const RED: [f32; 4] = [0.878, 0.424, 0.459, 1.0];
 #[derive(Default)]
 struct ManualForm {
     enabled: bool,
+    cpu_model: LauncherCpuModel,
     svd: String,
     vector_table: String,
     flash_start: String,
@@ -41,21 +48,47 @@ struct App {
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(saved: SavedLauncherState) -> Self {
         Self {
-            state: LauncherState::default(),
-            variants: all_variants(),
-            filter: String::new(),
-            manual: ManualForm {
-                vector_table: "0x08000000".to_owned(),
-                flash_start: "0x08000000".to_owned(),
-                flash_size: "0x00100000".to_owned(),
-                ram_start: "0x20000000".to_owned(),
-                ram_size: "0x00020000".to_owned(),
+            state: LauncherState {
+                firmware: saved.firmware,
+                svd: saved.svd,
+                emulator_executable: saved.emulator_executable,
+                selected_variant: saved.selected_variant,
                 ..Default::default()
+            },
+            variants: all_variants(),
+            filter: saved.filter,
+            manual: ManualForm {
+                enabled: saved.manual_enabled,
+                cpu_model: saved.manual_cpu_model,
+                svd: saved.manual_svd,
+                vector_table: if saved.manual_vector_table.is_empty() { "0x08000000".to_owned() } else { saved.manual_vector_table },
+                flash_start: if saved.manual_flash_start.is_empty() { "0x08000000".to_owned() } else { saved.manual_flash_start },
+                flash_size: if saved.manual_flash_size.is_empty() { "0x00100000".to_owned() } else { saved.manual_flash_size },
+                ram_start: if saved.manual_ram_start.is_empty() { "0x20000000".to_owned() } else { saved.manual_ram_start },
+                ram_size: if saved.manual_ram_size.is_empty() { "0x00020000".to_owned() } else { saved.manual_ram_size },
             },
             temporary_config: None,
             process: None,
+        }
+    }
+
+    fn saved_state(&self) -> SavedLauncherState {
+        SavedLauncherState {
+            firmware: self.state.firmware.clone(),
+            svd: self.state.svd.clone(),
+            emulator_executable: self.state.emulator_executable.clone(),
+            selected_variant: self.state.selected_variant.clone(),
+            filter: self.filter.clone(),
+            manual_enabled: self.manual.enabled,
+            manual_cpu_model: self.manual.cpu_model,
+            manual_svd: self.manual.svd.clone(),
+            manual_vector_table: self.manual.vector_table.clone(),
+            manual_flash_start: self.manual.flash_start.clone(),
+            manual_flash_size: self.manual.flash_size.clone(),
+            manual_ram_start: self.manual.ram_start.clone(),
+            manual_ram_size: self.manual.ram_size.clone(),
         }
     }
 
@@ -94,6 +127,7 @@ impl App {
                 return Err("Manual profile requires an existing SVD file.".to_owned());
             }
             return Ok(ResolvedProfile::manual(
+                self.manual.cpu_model,
                 firmware,
                 svd,
                 parse_address(&self.manual.vector_table, "vector table")?,
@@ -181,17 +215,38 @@ fn parse_address(input: &str, label: &str) -> Result<u32, String> {
     parsed.map_err(|_| format!("Manual {label} must be decimal or hexadecimal (0x...)."))
 }
 
+fn window_attributes(
+    placement: Option<WindowPlacement>,
+) -> glium::winit::window::WindowAttributes {
+    let placement = placement.filter(|value| value.width > 0 && value.height > 0);
+    let mut attributes = glium::winit::window::Window::default_attributes()
+        .with_title("STM32 Emulator")
+        .with_inner_size(glium::winit::dpi::PhysicalSize::new(
+            placement.as_ref().map_or(1440, |value| value.width),
+            placement.as_ref().map_or(900, |value| value.height),
+        ));
+    if let Some(placement) = placement {
+        attributes = attributes.with_position(glium::winit::dpi::PhysicalPosition::new(
+            placement.x,
+            placement.y,
+        ));
+    }
+    attributes
+}
+
 fn main() {
+    let store = WorkspaceStore::for_current_user().expect("launcher workspace directory");
+    let mut workspace = store.load().unwrap_or_default();
     let event_loop = glium::winit::event_loop::EventLoop::builder()
         .build()
         .expect("event loop building");
     let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new()
         .with_title("STM32 Emulator — Firmware Launcher")
-        .with_inner_size(1440, 900)
+        .set_window_builder(window_attributes(workspace.window.clone()))
         .build(&event_loop);
-    let (mut platform, mut imgui) = imgui_init(&window);
+    let (mut platform, mut imgui) = imgui_init(&window, store.imgui_ini_path());
     let mut renderer = Renderer::new(&mut imgui, &display).expect("ImGui renderer initialization");
-    let mut app = App::new();
+    let mut app = App::new(workspace.state.clone());
     let mut last_frame = Instant::now();
 
     #[allow(deprecated)]
@@ -220,6 +275,7 @@ fn main() {
                 draw_configuration_panel(ui, &mut app);
                 draw_notes_panel(ui, &app);
                 draw_output_panel(ui, &mut app);
+                workspace.state = app.saved_state();
 
                 let mut target = display.draw();
                 target.clear_color_srgb(BG[0], BG[1], BG[2], BG[3]);
@@ -233,7 +289,19 @@ fn main() {
             glium::winit::event::Event::WindowEvent {
                 event: glium::winit::event::WindowEvent::CloseRequested,
                 ..
-            } => window_target.exit(),
+            } => {
+                workspace.state = app.saved_state();
+                let size = window.inner_size();
+                let position = window.outer_position().unwrap_or_default();
+                workspace.window = Some(WindowPlacement {
+                    x: position.x,
+                    y: position.y,
+                    width: size.width,
+                    height: size.height,
+                });
+                let _ = store.save(&workspace);
+                window_target.exit()
+            },
             glium::winit::event::Event::WindowEvent {
                 event: glium::winit::event::WindowEvent::Resized(size),
                 ..
@@ -248,9 +316,12 @@ fn main() {
         .expect("event loop error");
 }
 
-fn imgui_init(window: &glium::winit::window::Window) -> (WinitPlatform, Context) {
+fn imgui_init(
+    window: &glium::winit::window::Window,
+    ini_path: PathBuf,
+) -> (WinitPlatform, Context) {
     let mut imgui = Context::create();
-    imgui.set_ini_filename(Some(PathBuf::from("stm32-launcher.ini")));
+    imgui.set_ini_filename(Some(ini_path));
     imgui
         .io_mut()
         .config_flags
@@ -365,6 +436,20 @@ fn draw_configuration_panel(ui: &Ui, app: &mut App) {
         .size([520.0, 560.0], Condition::FirstUseEver)
         .build(|| {
             if app.manual.enabled {
+                ui.text("CPU model");
+                if ui.radio_button_bool(
+                    "Cortex-M4",
+                    app.manual.cpu_model == LauncherCpuModel::CortexM4,
+                ) {
+                    app.manual.cpu_model = LauncherCpuModel::CortexM4;
+                }
+                ui.same_line();
+                if ui.radio_button_bool(
+                    "Cortex-M7",
+                    app.manual.cpu_model == LauncherCpuModel::CortexM7,
+                ) {
+                    app.manual.cpu_model = LauncherCpuModel::CortexM7;
+                }
                 ui.input_text("SVD path", &mut app.manual.svd).build();
                 ui.input_text("Vector table", &mut app.manual.vector_table)
                     .build();

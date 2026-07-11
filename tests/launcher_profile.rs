@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use stm32_emulator::launcher::{KnownVariant, ResolvedProfile};
+use stm32_emulator::launcher::{KnownVariant, LauncherCpuModel, ResolvedProfile};
 
 #[test]
 fn proteus_f7_resolves_both_verified_firmware_aliases() {
@@ -36,6 +36,7 @@ fn unsupported_variant_cannot_resolve_to_a_runnable_profile() {
 #[test]
 fn manual_profile_uses_only_explicit_memory_values() {
     let profile = ResolvedProfile::manual(
+        LauncherCpuModel::CortexM4,
         PathBuf::from(r"C:\firmware\custom.bin"),
         PathBuf::from(r"C:\svd\custom.svd"),
         0x0800_0000,
@@ -50,4 +51,32 @@ fn manual_profile_uses_only_explicit_memory_values() {
     assert_eq!(profile.regions[0].start, 0x0800_0000);
     assert!(profile.regions[0].load_firmware);
     assert_eq!(profile.regions[1].start, 0x2000_0000);
+}
+
+#[test]
+fn proteus_f7_yaml_selects_cortex_m7() {
+    let profile = ResolvedProfile::for_variant(
+        KnownVariant::proteus_f7(),
+        PathBuf::from("rusefi.bin"),
+        PathBuf::from("STM32F767.svd"),
+    )
+    .unwrap();
+
+    assert!(profile.to_yaml().unwrap().contains("model: cortex-m7"));
+}
+
+#[test]
+fn manual_profile_yaml_uses_the_selected_cpu_model() {
+    let profile = ResolvedProfile::manual(
+        LauncherCpuModel::CortexM4,
+        PathBuf::from("firmware.bin"),
+        PathBuf::from("chip.svd"),
+        0x0800_0000,
+        0x0800_0000,
+        0x0010_0000,
+        0x2000_0000,
+        0x0002_0000,
+    );
+
+    assert!(profile.to_yaml().unwrap().contains("model: cortex-m4"));
 }
