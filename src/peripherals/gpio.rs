@@ -7,7 +7,7 @@ use regex::Regex;
 
 const NUM_PORTS: usize = 11;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Pin {
     port: u8,
     pin: u8,

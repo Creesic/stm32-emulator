@@ -6,6 +6,7 @@ mod display;
 mod lcd;
 mod touchscreen;
 pub mod usb_cdc_tcp;
+mod ecu_io;
 
 use spi_flash::{SpiFlashConfig, SpiFlash};
 use usart_probe::{UsartProbeConfig, UsartProbe};
