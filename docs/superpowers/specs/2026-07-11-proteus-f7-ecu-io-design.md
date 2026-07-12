@@ -76,14 +76,19 @@ Three new pieces, following patterns already established in this codebase:
    capture — the same methodology used for the OTG-FS work, rather than
    guessed upfront.
 
-One open question to resolve during implementation, not before: does
-rusEFI's trigger input driver read the crank/cam pins via EXTI edge
-interrupts, or by polling GPIO IDR? If EXTI-driven, `EcuIo` setting a new
-level on a change needs to also raise the corresponding EXTI interrupt
-(via the existing NVIC `set_intr_pending` mechanism) so firmware notices the
-edge; if polled, updating the read-callback's return value is sufficient on
-its own. This will be settled by reading ChibiOS's EXTI driver source and,
-if needed, a live capture — not speculated here.
+**Resolved during planning:** rusEFI's trigger input driver (`digital_input_exti.cpp`) confirmed to be EXTI-driven via ChibiOS's `palEnableLineEvent`, not polled. This means a fourth piece is required:
+
+4. **`src/peripherals/exti.rs`** — a new minimal `Exti` peripheral (EXTI's
+   own IMR/EMR/RTSR/FTSR/PR/SWIER registers) plus the small slice of SYSCFG
+   (`EXTICR1`-`EXTICR4`, which GPIO port is routed to which EXTI line) that
+   EXTI's own logic needs to answer "is this pin's port actually the one
+   armed for this line." Its state lives in a new named field on
+   `Peripherals` (`pub exti: RefCell<Exti>`), mirroring the existing
+   `nvic`/`gpio` fields, since `EcuIo` needs direct access to it (not just
+   MMIO dispatch) to raise an interrupt the moment an external level change
+   is noticed. `EcuIo` polls for digital-input level changes once per
+   `poll()` tick and raises the corresponding EXTI/NVIC interrupt when one
+   is found — see the implementation plan for the exact mechanism.
 
 ## Configuration
 
