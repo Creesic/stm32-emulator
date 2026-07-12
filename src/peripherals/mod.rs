@@ -18,6 +18,7 @@ pub mod spi;
 pub mod sw_spi;
 pub mod systick;
 pub mod tim11;
+pub mod tim5;
 pub mod usart;
 
 use adc::*;
@@ -39,6 +40,7 @@ use spi::*;
 use sw_spi::*;
 use systick::*;
 use tim11::*;
+use tim5::*;
 use usart::*;
 
 use std::{
@@ -206,6 +208,7 @@ impl Peripherals {
             .or_else(|| Rtc::new(&name))
             .or_else(|| Flash::new(&name))
             .or_else(|| Tim11::new(&name))
+            .or_else(|| Tim5::new(&name))
             .or_else(|| I2c::new(&name))
             .or_else(|| Dma::new(&name))
             .or_else(|| Spi::new(&name, ext_devices))
