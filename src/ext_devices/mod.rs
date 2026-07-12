@@ -6,7 +6,7 @@ mod display;
 mod lcd;
 mod touchscreen;
 pub mod usb_cdc_tcp;
-mod ecu_io;
+pub mod ecu_io;
 
 use spi_flash::{SpiFlashConfig, SpiFlash};
 use usart_probe::{UsartProbeConfig, UsartProbe};
@@ -14,6 +14,7 @@ use display::{DisplayConfig, Display};
 use lcd::{LcdConfig, Lcd};
 use touchscreen::{TouchscreenConfig, Touchscreen};
 use usb_cdc_tcp::{UsbCdcTcpConfig, UsbCdcTcp};
+use ecu_io::{EcuIoConfig, EcuIo};
 
 use std::{rc::Rc, cell::RefCell};
 use serde::Deserialize;
@@ -30,8 +31,10 @@ pub struct ExtDevicesConfig {
     pub lcd: Option<Vec<LcdConfig>>,
     pub touchscreen: Option<Vec<TouchscreenConfig>>,
     pub usb_cdc_tcp: Option<Vec<UsbCdcTcpConfig>>,
+    pub ecu_io: Option<Vec<EcuIoConfig>>,
 }
 
+#[derive(Default)]
 pub struct ExtDevices {
     pub spi_flashes: Vec<Rc<RefCell<SpiFlash>>>,
     pub usart_probes: Vec<Rc<RefCell<UsartProbe>>>,
@@ -39,6 +42,7 @@ pub struct ExtDevices {
     pub lcds: Vec<Rc<RefCell<Lcd>>>,
     pub touchscreens: Vec<Rc<RefCell<Touchscreen>>>,
     pub usb_cdc_tcps: Vec<Rc<RefCell<UsbCdcTcp>>>,
+    pub ecu_ios: Vec<Rc<RefCell<EcuIo>>>,
 }
 
 impl ExtDevices {
@@ -86,6 +90,15 @@ impl ExtDevices {
                 warn!("USB CDC TCP bridge error: {error:#}");
             }
         }
+        for ecu_io in &self.ecu_ios {
+            if let Err(error) = ecu_io.borrow_mut().poll() {
+                warn!("ECU IO bridge error: {error:#}");
+            }
+        }
+    }
+
+    pub fn ecu_io(&self) -> Option<Rc<RefCell<EcuIo>>> {
+        self.ecu_ios.first().cloned()
     }
 }
 
@@ -115,7 +128,11 @@ impl ExtDevicesConfig {
             .map(|config| UsbCdcTcp::new(config).map(RefCell::new).map(Rc::new))
             .collect::<Result<_>>()?;
 
-        Ok(ExtDevices { spi_flashes, usart_probes, displays, lcds, touchscreens, usb_cdc_tcps })
+        let ecu_ios = self.ecu_io.unwrap_or_default().into_iter()
+            .map(|config| EcuIo::register(config, gpio))
+            .collect::<Result<_>>()?;
+
+        Ok(ExtDevices { spi_flashes, usart_probes, displays, lcds, touchscreens, usb_cdc_tcps, ecu_ios })
     }
 }
 

@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::{
+    cell::RefCell,
     collections::{HashMap, VecDeque},
     io::{ErrorKind, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
+    rc::Rc,
 };
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::peripherals::gpio::Pin;
+use crate::peripherals::gpio::{GpioPorts, Pin};
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -73,6 +75,31 @@ impl EcuIo {
             values: HashMap::new(),
             adc_channels,
         })
+    }
+
+    pub fn register(config: EcuIoConfig, gpio: &mut GpioPorts) -> Result<Rc<RefCell<Self>>> {
+        let pins: Vec<_> = config
+            .pins
+            .iter()
+            .map(|p| (Pin::from_str(&p.pin), p.name.clone(), p.direction))
+            .collect();
+
+        let self_ = Rc::new(RefCell::new(Self::new(config)?));
+
+        for (pin, name, direction) in pins {
+            match direction {
+                EcuIoPinDirection::Input => {
+                    let s = self_.clone();
+                    gpio.add_read_callback(pin, move |_sys| s.borrow().digital_level(&name));
+                }
+                EcuIoPinDirection::Output => {
+                    let s = self_.clone();
+                    gpio.add_write_callback(pin, move |_sys, v| s.borrow_mut().report_output(&name, v));
+                }
+            }
+        }
+
+        Ok(self_)
     }
 
     pub fn local_addr(&self) -> Result<SocketAddr> {
@@ -216,10 +243,12 @@ impl EcuIo {
 
 #[cfg(test)]
 mod tests {
-    use std::{io::{Read, Write}, net::TcpStream, time::Duration};
+    use std::{cell::RefCell, io::{Read, Write}, net::TcpStream, rc::Rc, time::Duration};
+
+    use unicorn_engine::{unicorn_const::{Arch, Mode}, Unicorn};
 
     use super::{EcuIo, EcuIoAdcChannelConfig, EcuIoConfig};
-    use crate::peripherals::gpio::Pin;
+    use crate::{ext_devices::ExtDevices, peripherals::{gpio::{GpioPorts, Pin}, Peripherals}, system::System};
 
     fn test_config() -> EcuIoConfig {
         EcuIoConfig {
@@ -307,5 +336,67 @@ mod tests {
 
         assert_eq!(config.pins[0].name, "crank");
         assert_eq!(config.adc_channels[0].name, "map");
+    }
+
+    // `System` borrows its Unicorn engine mutably (`uc: RefCell<&'a mut Unicorn<'b, ()>>`),
+    // so this can't return a ready-made `System` — the engine would be a dangling
+    // local. Each test constructs its own `Unicorn`/`Peripherals`/`ExtDevices` and
+    // builds `System` from them locally instead.
+    fn test_parts() -> (Unicorn<'static, ()>, Rc<Peripherals>, Rc<ExtDevices>) {
+        let uc = Unicorn::new(Arch::ARM, Mode::THUMB | Mode::LITTLE_ENDIAN).unwrap();
+        (uc, Rc::new(Peripherals::default()), Rc::new(ExtDevices::default()))
+    }
+
+    #[test]
+    fn registered_input_pin_reflects_the_last_received_value_on_gpio_read() {
+        let mut gpio = GpioPorts::default();
+        let config = EcuIoConfig {
+            listen: "127.0.0.1:0".to_string(),
+            pins: vec![super::EcuIoPinConfig {
+                name: "crank".to_string(),
+                pin: "PC6".to_string(),
+                direction: super::EcuIoPinDirection::Input,
+            }],
+            adc_channels: vec![],
+        };
+        let ecu_io = EcuIo::register(config, &mut gpio).unwrap();
+        let (mut uc, p, d) = test_parts();
+        let sys = System { uc: RefCell::new(&mut uc), p, d };
+
+        ecu_io.borrow_mut().set_value("crank", 1);
+        let port = GpioPorts::port_index('C');
+        assert_eq!(gpio.read_port(&sys, port), 1 << 6);
+
+        ecu_io.borrow_mut().set_value("crank", 0);
+        assert_eq!(gpio.read_port(&sys, port), 0);
+    }
+
+    #[test]
+    fn registered_output_pin_reports_a_gpio_write_over_the_connection() {
+        let mut gpio = GpioPorts::default();
+        let config = EcuIoConfig {
+            listen: "127.0.0.1:0".to_string(),
+            pins: vec![super::EcuIoPinConfig {
+                name: "inj1".to_string(),
+                pin: "PD7".to_string(),
+                direction: super::EcuIoPinDirection::Output,
+            }],
+            adc_channels: vec![],
+        };
+        let ecu_io = EcuIo::register(config, &mut gpio).unwrap();
+        let (mut uc, p, d) = test_parts();
+        let sys = System { uc: RefCell::new(&mut uc), p, d };
+
+        let mut client = TcpStream::connect(ecu_io.borrow().local_addr().unwrap()).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        ecu_io.borrow_mut().poll().unwrap();
+
+        let port = GpioPorts::port_index('D');
+        gpio.write_port(&sys, port, 7, true);
+        ecu_io.borrow_mut().poll().unwrap();
+
+        let mut buf = [0; 16];
+        let n = client.read(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"inj1=1\n");
     }
 }
