@@ -84,7 +84,7 @@ impl ExtDevices {
             .cloned()
     }
 
-    pub fn poll(&self) {
+    pub fn poll(&self, sys: &System) {
         for bridge in &self.usb_cdc_tcps {
             if let Err(error) = bridge.borrow_mut().poll() {
                 warn!("USB CDC TCP bridge error: {error:#}");
@@ -94,6 +94,7 @@ impl ExtDevices {
             if let Err(error) = ecu_io.borrow_mut().poll() {
                 warn!("ECU IO bridge error: {error:#}");
             }
+            ecu_io.borrow_mut().check_digital_edges(sys);
         }
     }
 

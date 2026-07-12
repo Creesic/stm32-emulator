@@ -24,6 +24,14 @@ impl Pin {
         assert!(pin < 16);
         Self { port, pin }
     }
+
+    pub fn port(&self) -> u8 {
+        self.port
+    }
+
+    pub fn number(&self) -> u8 {
+        self.pin
+    }
 }
 
 #[derive(Default)]

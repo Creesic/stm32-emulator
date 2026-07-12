@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use crate::peripherals::gpio::{GpioPorts, Pin};
+use crate::system::System;
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -50,6 +51,8 @@ pub struct EcuIo {
     outgoing: VecDeque<u8>,
     values: HashMap<String, i32>,
     adc_channels: Vec<(Pin, String)>,
+    digital_input_pins: Vec<(Pin, String)>,
+    last_digital_levels: HashMap<String, bool>,
 }
 
 impl EcuIo {
@@ -66,6 +69,13 @@ impl EcuIo {
             .map(|c| (Pin::from_str(&c.pin), c.name.clone()))
             .collect();
 
+        let digital_input_pins = config
+            .pins
+            .iter()
+            .filter(|p| p.direction == EcuIoPinDirection::Input)
+            .map(|p| (Pin::from_str(&p.pin), p.name.clone()))
+            .collect();
+
         Ok(Self {
             config,
             listener,
@@ -74,6 +84,8 @@ impl EcuIo {
             outgoing: VecDeque::new(),
             values: HashMap::new(),
             adc_channels,
+            digital_input_pins,
+            last_digital_levels: HashMap::new(),
         })
     }
 
@@ -126,6 +138,19 @@ impl EcuIo {
 
     pub fn digital_level(&self, name: &str) -> bool {
         self.values.get(name).copied().unwrap_or(0) != 0
+    }
+
+    pub fn check_digital_edges(&mut self, sys: &System) {
+        for (pin, name) in self.digital_input_pins.clone() {
+            let level = self.digital_level(&name);
+            let previous = self.last_digital_levels.get(&name).copied().unwrap_or(false);
+            if level != previous {
+                if let Some(irq) = sys.p.exti.borrow_mut().raise_line_if_configured(pin.port(), pin.number(), level) {
+                    sys.p.nvic.borrow_mut().set_intr_pending(irq);
+                }
+                self.last_digital_levels.insert(name, level);
+            }
+        }
     }
 
     pub fn report_output(&mut self, name: &str, level: bool) {
@@ -398,5 +423,34 @@ mod tests {
         let mut buf = [0; 16];
         let n = client.read(&mut buf).unwrap();
         assert_eq!(&buf[..n], b"inj1=1\n");
+    }
+
+    #[test]
+    fn a_digital_input_level_change_raises_the_configured_exti_line() {
+        let mut gpio = GpioPorts::default();
+        let config = EcuIoConfig {
+            listen: "127.0.0.1:0".to_string(),
+            pins: vec![super::EcuIoPinConfig {
+                name: "crank".to_string(),
+                pin: "PC6".to_string(),
+                direction: super::EcuIoPinDirection::Input,
+            }],
+            adc_channels: vec![],
+        };
+        let ecu_io = EcuIo::register(config, &mut gpio).unwrap();
+
+        let (mut uc, p, d) = test_parts();
+        p.exti.borrow_mut().write_syscfg(crate::peripherals::exti::Exti::EXTICR2, 2 << 8);
+        p.exti.borrow_mut().write_exti(crate::peripherals::exti::Exti::IMR, 1 << 6);
+        p.exti.borrow_mut().write_exti(crate::peripherals::exti::Exti::RTSR, 1 << 6);
+        let sys = System { uc: RefCell::new(&mut uc), p: p.clone(), d };
+
+        ecu_io.borrow_mut().set_value("crank", 1);
+        ecu_io.borrow_mut().check_digital_edges(&sys);
+
+        assert_eq!(
+            p.exti.borrow_mut().read_exti(crate::peripherals::exti::Exti::PR) & (1 << 6),
+            1 << 6
+        );
     }
 }

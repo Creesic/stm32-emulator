@@ -3,6 +3,7 @@
 pub mod adc;
 pub mod dma;
 pub mod dwt;
+pub mod exti;
 pub mod flash;
 pub mod fsmc;
 pub mod gpio;
@@ -22,6 +23,7 @@ pub mod usart;
 use adc::*;
 use dma::*;
 use dwt::*;
+use exti::*;
 use flash::*;
 use fsmc::*;
 use gpio::*;
@@ -58,6 +60,7 @@ pub struct Peripherals {
     peripherals: Vec<PeripheralSlot<RefCell<Box<dyn Peripheral>>>>,
     pub nvic: RefCell<Nvic>,
     pub gpio: RefCell<GpioPorts>,
+    pub exti: RefCell<Exti>,
 }
 
 #[cfg(test)]
@@ -206,7 +209,9 @@ impl Peripherals {
             .or_else(|| I2c::new(&name))
             .or_else(|| Dma::new(&name))
             .or_else(|| Spi::new(&name, ext_devices))
-            .or_else(|| Adc::new(&name, ext_devices));
+            .or_else(|| Adc::new(&name, ext_devices))
+            .or_else(|| ExtiWrapper::new(&name))
+            .or_else(|| SyscfgWrapper::new(&name));
 
         if let Some(p) = p {
             self.peripherals.push(PeripheralSlot {

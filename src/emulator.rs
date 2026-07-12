@@ -139,7 +139,7 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
 
             if n & PUMP_EVENT_INST_INTERVAL == 0 {
                 let sys = System { uc: RefCell::new(uc), p: p.clone(), d: d.clone() };
-                d.poll();
+                d.poll(&sys);
                 p.poll(&sys);
                 for fb in &framebuffers.sdls {
                     fb.borrow_mut().maybe_redraw();
