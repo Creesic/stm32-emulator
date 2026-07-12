@@ -35,7 +35,7 @@
 - Produces `pub(crate) fn set_value(&mut self, name: &str, value: i32)` (also used internally by line parsing) — Task 3's tests use this directly to seed ADC channel values without a real TCP round-trip.
 - Consumes: `crate::peripherals::gpio::Pin` (parsing only in this task; no `GpioPorts` dependency yet).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
     Create `src/ext_devices/ecu_io.rs`:
 
@@ -189,12 +189,12 @@
     }
     ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator ecu_io`
     Expected: FAIL to compile — `EcuIo::new`, `poll`, `local_addr`, `adc_millivolts`, `set_value`, `report_output` don't exist yet (only the config structs and field layout do).
 
-- [ ] **Step 3: Implement `EcuIo`**
+- [x] **Step 3: Implement `EcuIo`**
 
     Add to `src/ext_devices/ecu_io.rs`, above the `#[cfg(test)]` block:
 
@@ -366,12 +366,12 @@
 
     Also add `#[derive(Clone, Copy, PartialEq)]` to `Pin` in `src/peripherals/gpio.rs:10` (currently just `#[derive(Clone, Copy)]`) — needed for the `*p == pin` comparison in `adc_millivolts`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator ecu_io`
     Expected: PASS (all 6 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
     ```bash
     git add src/ext_devices/ecu_io.rs src/peripherals/gpio.rs
@@ -395,7 +395,7 @@
 - Produces `ExtDevices.ecu_ios: Vec<Rc<RefCell<EcuIo>>>` and `ExtDevices::ecu_io(&self) -> Option<Rc<RefCell<EcuIo>>>` (returns the first configured instance, or `None`) — Task 3's `Adc` peripheral consumes `ecu_io()`.
 - Produces `ExtDevicesConfig.ecu_io: Option<Vec<EcuIoConfig>>` field.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
     Add to `src/ext_devices/ecu_io.rs`'s `mod tests`:
 
@@ -471,12 +471,12 @@
 
     No existing test in this codebase constructs a real `System` (every other peripheral keeps its testable logic `&System`-free, per this task's own `digital_level`/`report_output` design) — `test_parts()`, defined above in this same code block, is a new helper. `System<'a, 'b>` borrows its Unicorn engine mutably (`uc: RefCell<&'a mut Unicorn<'b, ()>>`), so `test_parts()` returns the owned `(Unicorn, Rc<Peripherals>, Rc<ExtDevices>)` triple rather than a ready-made `System` — each test builds `System { uc: RefCell::new(&mut uc), p, d }` locally, right before use, exactly as shown above.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator ecu_io`
     Expected: FAIL to compile — `EcuIo::register` doesn't exist yet.
 
-- [ ] **Step 3: Implement `EcuIo::register`**
+- [x] **Step 3: Implement `EcuIo::register`**
 
     Add to `src/ext_devices/ecu_io.rs`'s `impl EcuIo` block:
 
@@ -577,17 +577,17 @@
 
     and add `ecu_ios` to the final `Ok(ExtDevices { .. })` construction.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator ecu_io`
     Expected: PASS (all tests from Task 1 and Task 2).
 
-- [ ] **Step 5: Run the full test suite**
+- [x] **Step 5: Run the full test suite**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator`
     Expected: PASS — no other test broken by the `Pin: PartialEq` derive or the new `ExtDevices` field.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
     ```bash
     git add src/ext_devices/ecu_io.rs src/ext_devices/mod.rs
@@ -616,7 +616,7 @@
 - Produces `Adc::new(name: &str, ext_devices: &ExtDevices) -> Option<Box<dyn Peripheral>>` (matches `Peripherals::register_peripheral`'s existing constructor-chain signature, e.g. `OtgFs::new`/`Spi::new`).
 - Produces `pub(crate) fn Adc::for_test(ecu_io: Option<Rc<RefCell<EcuIo>>>) -> Self`, `Adc::register_read(&mut self, offset: u32) -> u32`, `Adc::register_write(&mut self, offset: u32, value: u32)`, `Adc::dma_read_bytes(&mut self, offset: u32, size: usize) -> VecDeque<u8>`, `pub(crate) fn Adc::millivolts_to_counts(millivolts: i32) -> u32`, and register offset constants `Adc::SR`, `Adc::CR1`, `Adc::CR2`, `Adc::SMPR1`, `Adc::SMPR2`, `Adc::SQR1`, `Adc::SQR2`, `Adc::SQR3`, `Adc::DR`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
     Create `src/peripherals/adc.rs`:
 
@@ -739,12 +739,12 @@
     }
     ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator adc::`
     Expected: FAIL to compile — `Adc::for_test`, `register_read`, `register_write`, `dma_read_bytes`, `millivolts_to_counts`, and the offset constants don't exist yet.
 
-- [ ] **Step 3: Implement the register model**
+- [x] **Step 3: Implement the register model**
 
     Add to `src/peripherals/adc.rs`, above the `#[cfg(test)]` block:
 
@@ -898,12 +898,12 @@
     }
     ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator adc::`
     Expected: PASS (all 6 tests).
 
-- [ ] **Step 5: Wire `Adc` into the peripheral registration chain**
+- [x] **Step 5: Wire `Adc` into the peripheral registration chain**
 
     Modify `src/peripherals/mod.rs`:
 
@@ -917,12 +917,12 @@
 
     anywhere after `.or_else(|| Spi::new(&name, ext_devices))` (order among the `ext_devices`-consuming constructors doesn't matter — each only matches its own SVD name).
 
-- [ ] **Step 6: Run the full test suite**
+- [x] **Step 6: Run the full test suite**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator`
     Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
     ```bash
     git add src/peripherals/adc.rs src/peripherals/mod.rs
@@ -958,7 +958,7 @@ Register layout confirmed directly against `proteus_f7/STM32F767.svd` (not guess
 - Produces `Exti::raise_line_if_configured(&mut self, port: u8, pin: u8, rising: bool) -> Option<i32>`, `Exti::read_exti`/`write_exti`/`read_syscfg`/`write_syscfg` (all `pub(crate)`), and `Peripherals.exti: RefCell<Exti>`.
 - Produces `EcuIo::check_digital_edges(&mut self, sys: &System)` — called from `ExtDevices::poll`, which changes signature from `poll(&self)` to `poll(&self, sys: &System)` (Task 2's version had no `&System` parameter; this task adds it). `EcuIo::poll()` itself (Task 1's TCP I/O) is unchanged.
 
-- [ ] **Step 1: Write the failing `Exti` tests**
+- [x] **Step 1: Write the failing `Exti` tests**
 
     Create `src/peripherals/exti.rs`:
 
@@ -1046,12 +1046,12 @@ Register layout confirmed directly against `proteus_f7/STM32F767.svd` (not guess
     }
     ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator exti::`
     Expected: FAIL to compile — `write_syscfg`, `write_exti`, `read_exti`, `raise_line_if_configured`, and the offset constants don't exist yet.
 
-- [ ] **Step 3: Implement `Exti`**
+- [x] **Step 3: Implement `Exti`**
 
     Add to `src/peripherals/exti.rs`, above the `#[cfg(test)]` block:
 
@@ -1201,12 +1201,12 @@ Register layout confirmed directly against `proteus_f7/STM32F767.svd` (not guess
     }
     ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator exti::`
     Expected: PASS (all 6 tests).
 
-- [ ] **Step 5: Wire `Exti` into `Peripherals`**
+- [x] **Step 5: Wire `Exti` into `Peripherals`**
 
     Modify `src/peripherals/mod.rs`:
 
@@ -1225,7 +1225,7 @@ Register layout confirmed directly against `proteus_f7/STM32F767.svd` (not guess
             .or_else(|| SyscfgWrapper::new(&name))
     ```
 
-- [ ] **Step 6: Add `Pin::port`/`Pin::number` accessors**
+- [x] **Step 6: Add `Pin::port`/`Pin::number` accessors**
 
     Modify `src/peripherals/gpio.rs`, in `impl Pin` (`src/peripherals/gpio.rs:16-27`), add:
 
@@ -1239,7 +1239,7 @@ Register layout confirmed directly against `proteus_f7/STM32F767.svd` (not guess
         }
     ```
 
-- [ ] **Step 7: Write the failing `EcuIo::check_digital_edges` test**
+- [x] **Step 7: Write the failing `EcuIo::check_digital_edges` test**
 
     Add to `src/ext_devices/ecu_io.rs`'s `mod tests`:
 
@@ -1276,12 +1276,12 @@ Register layout confirmed directly against `proteus_f7/STM32F767.svd` (not guess
 
     This depends on the same `test_parts()` helper Task 2 added — reuse it (do not write a second one). Note the config (`EXTICR2`/`IMR`/`RTSR`) is written directly on `p.exti` *before* constructing `sys` (since `sys` holds a mutable borrow of `uc` for the rest of the test, `p` itself — an `Rc`, cheaply cloneable — remains freely usable either side of that point).
 
-- [ ] **Step 8: Run test to verify it fails**
+- [x] **Step 8: Run test to verify it fails**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator ecu_io`
     Expected: FAIL to compile — `check_digital_edges` doesn't exist yet.
 
-- [ ] **Step 9: Implement `check_digital_edges`**
+- [x] **Step 9: Implement `check_digital_edges`**
 
     Modify `src/ext_devices/ecu_io.rs`'s `EcuIo` struct to add two fields:
 
@@ -1347,12 +1347,12 @@ Register layout confirmed directly against `proteus_f7/STM32F767.svd` (not guess
 
     Modify `src/emulator.rs:142`, changing `d.poll();` to `d.poll(&sys);` (the `sys` local is already constructed on the preceding lines for `p.poll(&sys)`).
 
-- [ ] **Step 10: Run tests to verify they pass**
+- [x] **Step 10: Run tests to verify they pass**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator`
     Expected: PASS — all tests, including the full suite (no other call site broken by `ExtDevices::poll`'s new parameter; `emulator.rs` was the only other caller).
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
     ```bash
     git add src/peripherals/exti.rs src/peripherals/mod.rs src/peripherals/gpio.rs src/ext_devices/ecu_io.rs src/ext_devices/mod.rs src/emulator.rs
@@ -1376,7 +1376,7 @@ The exact pin for the cam trigger input is genuinely unconfirmed — rusEFI's ca
 **Interfaces:**
 - Consumes: `EcuIoConfig` YAML schema (Task 1/2), nothing new produced for later tasks — this is the final task.
 
-- [ ] **Step 1: Add a failing YAML assertion**
+- [x] **Step 1: Add a failing YAML assertion**
 
     In `proteus_f7/verify_boot.ps1`, alongside the existing `usb_cdc_tcp` assertions (near line 22-24), add a check that `config.yaml` contains:
 
@@ -1388,12 +1388,12 @@ The exact pin for the cam trigger input is genuinely unconfirmed — rusEFI's ca
 
     (match the exact style already used for the `usb_cdc_tcp` checks in that file — read the surrounding lines first to mirror the pattern precisely, since the exact assertion mechanism should already be established there.)
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
     Run: `.\proteus_f7\verify_boot.ps1`
     Expected: FAIL — `config.yaml` has no `ecu_io` device yet.
 
-- [ ] **Step 3: Add the ECU I/O device configuration**
+- [x] **Step 3: Add the ECU I/O device configuration**
 
     Add under `devices:` in `proteus_f7/config.yaml`, alongside the existing `usb_cdc_tcp` entry:
 
@@ -1413,7 +1413,7 @@ The exact pin for the cam trigger input is genuinely unconfirmed — rusEFI's ca
             - { name: vbatt, pin: PA7 }
     ```
 
-- [ ] **Step 4: Document operation**
+- [x] **Step 4: Document operation**
 
     Create `docs/proteus-f7-ecu-io.md`:
 
@@ -1465,7 +1465,7 @@ The exact pin for the cam trigger input is genuinely unconfirmed — rusEFI's ca
     entries), no code change needed.
     ```
 
-- [ ] **Step 5: Verify the full route**
+- [ ] **Step 5: Verify the full route** (partial — see `docs/proteus-f7-ecu-io.md`'s "Verification" section: config assertions and TCP wiring confirmed live; firmware-side ADC/EXTI activation for crank/MAP was not observed within a multi-billion-instruction capture, isolated from a general regression since the same run's USB CDC/TunerStudio path responded normally)
 
     Run: `.\proteus_f7\verify_boot.ps1`
     Expected: PASS through the new `ecu_io` assertions.
@@ -1478,7 +1478,7 @@ The exact pin for the cam trigger input is genuinely unconfirmed — rusEFI's ca
 
     Append a "## Verification" section to `docs/proteus-f7-ecu-io.md` with the exact observed bytes/values from both checks above.
 
-- [ ] **Step 6: Final checks and commit**
+- [x] **Step 6: Final checks and commit**
 
     Run: `CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo test --bin stm32-emulator`
     Expected: PASS.

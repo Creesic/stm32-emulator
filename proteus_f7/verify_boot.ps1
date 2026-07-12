@@ -21,7 +21,10 @@ foreach ($line in @(
     'start: 0x2007c000',
     'peripheral: OTG_FS_GLOBAL',
     'listen: 127.0.0.1:29000',
-    'max_buffered_bytes: 65536'
+    'max_buffered_bytes: 65536',
+    'ecu_io:',
+    'listen: 127.0.0.1:29002',
+    'name: crank'
 )) {
     if (-not $config.Contains($line)) {
         throw "Configuration contract is missing: $line"

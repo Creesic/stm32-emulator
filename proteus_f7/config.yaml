@@ -31,3 +31,16 @@ devices:
     - peripheral: OTG_FS_GLOBAL
       listen: 127.0.0.1:29000
       max_buffered_bytes: 65536
+  ecu_io:
+    - listen: 127.0.0.1:29002
+      pins:
+        - { name: crank, pin: PC6, direction: input }
+        - { name: cam,   pin: PE11, direction: input }
+        - { name: inj1,  pin: PD7, direction: output }
+        - { name: ign1,  pin: PD4, direction: output }
+      adc_channels:
+        - { name: map, pin: PC0 }
+        - { name: tps, pin: PC1 }
+        - { name: clt, pin: PB0 }
+        - { name: iat, pin: PC5 }
+        - { name: vbatt, pin: PA7 }
