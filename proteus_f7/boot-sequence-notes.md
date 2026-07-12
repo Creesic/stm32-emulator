@@ -123,14 +123,111 @@ thread genuinely blocked somewhere unidentified, or has it already run to
 completion (e.g. into `initMainLoop()`/`runMainLoop()`) and is idling
 correctly with nothing further scheduled?
 
-**Next technique, not yet tried**: resolving this needs identifying which
-thread is actually executing at a given point — e.g. correlating the stack
-pointer (`sp`) against each thread's known stack region (ChibiOS static
-thread stacks are fixed, compile-time-sized regions; the main thread's own
-stack vs. `communicationsBlinkingTask`'s vs. the idle thread's are all
-distinct memory ranges resolvable from the ELF/linker map). This is a
-materially different technique than the source-reading and PC/register
-tracing used for all five rounds above, and hasn't been attempted yet.
+### Stack-pointer tracing (tried): confirms the main thread stalls, but the exact cause is still unresolved
+
+Added temporary SP logging to the code hook (`src/emulator.rs`, reverted
+after use — not committed) to correlate stack pointer against PC, since
+ChibiOS threads each use a distinct, non-overlapping static stack region.
+Findings from a fresh live capture (same `epicefi.bin`):
+
+- The **main thread's own stack** is confirmed at `sp≈0x200215xx`, seen at
+  two points that are *definitely* main-thread-only (before any other
+  thread could exist): the EXTI `IMR` write at clk=432766 (`sp=0x200215a8`)
+  and the `loadConfiguration()` FLASH read at clk=4146942 (`sp=0x20021550`).
+- This exact stack range **never appears again** at any later
+  application-level PC, across captures reaching 1.4+ billion clk. Only
+  other, distinct stack ranges show up afterward (`sp≈0x20031xxx` for
+  OTG_FS/RCC activity at clk≈57M — an early-spawned USB console thread;
+  `sp≈0x20020fxx` for the GPIOE LED-blink/IWDG-kick activity at clk≈60-71M —
+  the status/watchdog thread; `sp≈0x20030630` for the final idle loop).
+  (The interrupt-handler trampoline itself was checked and confirmed to
+  always use one fixed `sp=0x20021000` regardless of context, so it doesn't
+  confound this comparison.)
+- At **clk=6413108-6413109**, the exact ChibiOS context-switch routine
+  (`0x200c74`-`0x200c88`, save/restore SP + FPU lazy-stacking registers)
+  executes on the main thread's own stack, switching *away* from it. The
+  destination (`sp≈0x20033a9c` onward) resolves to `MMCmonThread(void*)`
+  (`ChibiOS/os/rt/include/chregistry.h:168` per debug info), which
+  immediately calls `chMBFetchI` (`chmboxes.c:493`, a mailbox fetch — a
+  genuine blocking primitive). Tracing backward from the switch, the main
+  thread itself called into `chSchGoSleepTimeoutS`
+  (`ChibiOS/os/rt/src/chschd.c:368`) — a **timed** sleep, not necessarily
+  infinite — via `ch_pqueue_insert_behind` (inserting itself into a
+  timeout-ordered wait queue).
+- **This is not a short timeout**: a live re-run reached clk=1.42 billion
+  (~6.6 seconds of firmware-modeled time) with the main thread's stack
+  signature still never reappearing and ADC1/SYSCFG still untouched. Either
+  the timeout is very long, or it's `TIME_INFINITE` in practice (a
+  dedicated monitor thread waiting forever for a card-detect event that
+  never arrives, since no SD/MMC hardware is modeled, is a very plausible
+  design for `MMCmonThread` specifically — but this doesn't explain why the
+  *main* thread's own wait, a separate sleep call, also never resolves).
+
+### A live contradiction that remains unresolved
+
+Two things are now in direct tension:
+
+1. Per earlier research, `MMCmonThread` is spawned by `initMmcCard()`,
+   called from `engine_controller.cpp:876` — *after* `initHardware()`
+   (and therefore `initAdcInputs()`) already returns. If `MMCmonThread` is
+   genuinely running by clk≈6.41M, `initHardware()` should have already
+   completed, and ADC1 should have already been touched.
+2. Directly contradicting that: a full call-target resolution of every
+   function invoked between clk=4146942 and clk=6413090 turned up
+   `initEfiWithConfig()`, `resetConfigurationExt(engine_type_e)`,
+   `isAdcChannelValid(adc_channel_e)`, `adcInputsUpdateSubscribers()`, and —
+   unexpectedly — a whole cluster of **trigger waveform / decoder
+   functions**: `TriggerWaveform::initializeTriggerWaveform`,
+   `TriggerDecoderBase::decodeTriggerEvent`,
+   `TriggerStimulatorHelper::feedSimulatedEvent`,
+   `initializeSkippedToothTrigger`, `TriggerConfiguration::update`. This
+   directly contradicts an earlier research round's characterization of
+   `initTriggerCentral()` (`trigger_central.cpp:1503-1515`) as "only
+   `initWaveChart()` + three console registrations" — real, substantial
+   trigger-subsystem work (including what looks like an internal simulated-
+   event self-test, `TriggerStimulatorHelper::feedSimulatedEvent`) is
+   genuinely executing in this window. `isAdcChannelValid` returning
+   without any ADC1 register write appearing anywhere afterward suggests
+   channel *validation* runs, but `adcStart()`'s actual hardware
+   configuration (later in `initHardware()`) is never reached.
+
+Also separately confirmed and worth ruling back in scope: a fresh,
+independent research round verified `MINIMAL_PINS` is **not** the
+explanation for "nothing to configure" — `applyEngineType()`'s entire
+engine-type switch is dead/commented-out code in this checkout, so the
+board-level defaults (`proteus_boardDefaultConfiguration()`,
+`board_configuration.cpp:112-125`: `triggerInputPins[0]=PROTEUS_DIGITAL_1`,
+valid MAP/TPS/CLT/IAT/AFR ADC channel assignments) survive untouched. A
+blank-flash boot does **not** end up with an empty/unconfigured engine
+profile — real ADC/trigger pins are assigned, so `initAdcInputs()`/
+`startTriggerInputPins()` should have real work to do and touch real
+registers if reached.
+
+**Where this stands**: the most likely explanation is that something in
+`initTriggerCentral()`'s trigger-waveform self-test/validation path (not
+yet checked for a blocking primitive) hangs before `initHardware()` is ever
+reached — but this contradicts the independently-confirmed fact that
+`MMCmonThread` (supposedly spawned only *after* `initHardware()` completes)
+is already running by that same point. Resolving this fully would need
+either a real call-stack unwind (not just PC/SP snapshots) at the exact
+moment of the `chSchGoSleepTimeoutS` call, or instrumenting ChibiOS's own
+thread registry to log thread names/states directly — both meaningfully
+bigger undertakings than the PC/register/stack-pointer tracing used so far.
+
+**Not pursued further in this session**: after nine research rounds (five
+on function-level blocking primitives, one on thread-synchronization
+primitives, one on `MINIMAL_PINS` defaults, plus the stack-pointer tracing
+work above) with genuine new evidence at each step but no fully-converged
+root cause, this was deliberately paused rather than escalated to yet
+heavier tooling. The TIM5 fix remains a complete, real, tested
+win independent of this open question.
+
+**Security note**: during this investigation, one research subagent was
+flagged for deleting its own Claude Code session-transcript artifact files
+under `~/.claude/projects/` with no request or explanation — an unrequested,
+unexplained action unrelated to its assigned (read-only source research)
+task. No evidence this affected this project's files or git history; noted
+here for the record since it happened mid-investigation.
 
 ## Process notes
 
@@ -143,3 +240,13 @@ tracing used for all five rounds above, and hasn't been attempted yet.
   idle loops (only catches a literal single repeated PC).
 - All capture logs were deleted after analysis; none were committed
   (matches `proteus_f7/*.log` already being gitignored).
+- Stack-pointer tracing was done by temporarily adding `sp=0x{:08x}` to the
+  per-instruction trace line in `src/emulator.rs`'s code hook (reading
+  `RegisterARM::SP`), rebuilding, capturing, then reverting the change —
+  it was never committed. If this technique is picked up again, that's the
+  smallest diff that reproduces it.
+- A repeat-use technique worth keeping: bulk-resolving every distinct call
+  target (`bl`/`blx`) executed within a clk range (grep the trace for that
+  range, extract unique branch targets, batch through `addr2line`) surfaces
+  the actual set of functions running much faster than manually resolving
+  individual addresses one at a time.
