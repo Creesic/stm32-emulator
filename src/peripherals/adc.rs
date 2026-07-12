@@ -31,6 +31,7 @@ impl Adc {
     pub const DR: u32 = 0x4C;
 
     const CR2_SWSTART: u32 = 1 << 30;
+    const SR_EOC: u32 = 1 << 1;
 
     const CHANNEL_PIN_NAMES: [&'static str; 16] = [
         "PA0", "PA1", "PA2", "PA3", "PA4", "PA5", "PA6", "PA7",
@@ -108,7 +109,15 @@ impl Adc {
             Self::SQR1 => self.sqr1,
             Self::SQR2 => self.sqr2,
             Self::SQR3 => self.sqr3,
-            Self::DR => self.next_conversion_value(),
+            Self::DR => {
+                let value = self.next_conversion_value();
+                // Report conversion-complete, mirroring how Tim11::refresh_capture_status
+                // sets a status bit as a side effect of register interaction: harmless today
+                // (rusEFI's ADC path is DMA-driven, not SR-polling), but a future
+                // polling-mode consumer needs this set to see readiness.
+                self.sr |= Self::SR_EOC;
+                value
+            }
             _ => 0,
         }
     }
@@ -252,6 +261,18 @@ mod tests {
             (tps_counts >> 8) as u8,
         ];
         assert_eq!(bytes, expected.into_iter().collect::<std::collections::VecDeque<u8>>());
+    }
+
+    #[test]
+    fn dr_read_sets_the_eoc_bit_in_sr() {
+        let ecu_io = ecu_io_with(&[("map", "PC0", 1500)]);
+        let mut adc = Adc::for_test(Some(ecu_io));
+        adc.register_write(Adc::SQR1, 0); // L=0 -> 1 channel
+        adc.register_write(Adc::SQR3, 10); // channel 10 = PC0
+
+        assert_eq!(adc.register_read(Adc::SR) & (1 << 1), 0);
+        adc.register_read(Adc::DR);
+        assert_eq!(adc.register_read(Adc::SR) & (1 << 1), 1 << 1);
     }
 
     #[test]

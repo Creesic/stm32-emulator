@@ -14,6 +14,10 @@ use serde::Deserialize;
 use crate::peripherals::gpio::{GpioPorts, Pin};
 use crate::system::System;
 
+/// Defensive cap on `recv_buffer`/`outgoing` growth against a stalled or malicious
+/// client; not user-configurable, mirroring `usb_cdc_tcp`'s `max_buffered_bytes` default.
+const MAX_BUFFERED_BYTES: usize = 65536;
+
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum EcuIoPinDirection {
@@ -141,23 +145,32 @@ impl EcuIo {
     }
 
     pub fn check_digital_edges(&mut self, sys: &System) {
-        for (pin, name) in self.digital_input_pins.clone() {
-            let level = self.digital_level(&name);
-            let previous = self.last_digital_levels.get(&name).copied().unwrap_or(false);
+        // Iterate a direct field borrow (not `self.digital_level(...)`, which would
+        // reborrow all of `self`) so `self.last_digital_levels` can be updated in the
+        // same pass without cloning `digital_input_pins` on every call.
+        for (pin, name) in &self.digital_input_pins {
+            let level = self.values.get(name).copied().unwrap_or(0) != 0;
+            let previous = self.last_digital_levels.get(name).copied().unwrap_or(false);
             if level != previous {
                 if let Some(irq) = sys.p.exti.borrow_mut().raise_line_if_configured(pin.port(), pin.number(), level) {
                     sys.p.nvic.borrow_mut().set_intr_pending(irq);
                 }
-                self.last_digital_levels.insert(name, level);
+                self.last_digital_levels.insert(name.clone(), level);
             }
         }
     }
 
     pub fn report_output(&mut self, name: &str, level: bool) {
-        self.values.insert(name.to_string(), level as i32);
-        if self.client.is_some() {
-            let line = format!("{name}={}\n", level as i32);
-            self.outgoing.extend(line.into_bytes());
+        // `values` already doubles as "last known level" for this name (as it does for
+        // `check_digital_edges`'s `last_digital_levels`), so compare against it before
+        // queuing: GPIO's BSRR write path calls back on every bit in the set/reset mask,
+        // not just actual changes, unlike ODR's XOR'd change detection.
+        let new_value = level as i32;
+        let changed = self.values.get(name).copied() != Some(new_value);
+        self.values.insert(name.to_string(), new_value);
+        if changed && self.client.is_some() {
+            let line = format!("{name}={new_value}\n");
+            Self::push_capped_deque(&mut self.outgoing, &line.into_bytes(), MAX_BUFFERED_BYTES);
         }
     }
 
@@ -196,7 +209,7 @@ impl EcuIo {
                         disconnected = true;
                         break;
                     }
-                    Ok(count) => self.recv_buffer.extend_from_slice(&buffer[..count]),
+                    Ok(count) => Self::push_capped_vec(&mut self.recv_buffer, &buffer[..count], MAX_BUFFERED_BYTES),
                     Err(error) if error.kind() == ErrorKind::WouldBlock => break,
                     Err(error) if error.kind() == ErrorKind::ConnectionReset => {
                         disconnected = true;
@@ -263,6 +276,25 @@ impl EcuIo {
             self.client = None;
         }
         Ok(())
+    }
+
+    /// Appends `bytes`, dropping the oldest bytes in `buffer` if that would exceed `capacity`.
+    fn push_capped_vec(buffer: &mut Vec<u8>, bytes: &[u8], capacity: usize) {
+        buffer.extend_from_slice(bytes);
+        if buffer.len() > capacity {
+            let excess = buffer.len() - capacity;
+            buffer.drain(..excess);
+        }
+    }
+
+    /// Mirrors `usb_cdc_tcp::UsbCdcTcp::push_capped`: pops from the front to make room.
+    fn push_capped_deque(queue: &mut VecDeque<u8>, bytes: &[u8], capacity: usize) {
+        for &byte in bytes {
+            if queue.len() == capacity {
+                queue.pop_front();
+            }
+            queue.push_back(byte);
+        }
     }
 }
 
@@ -337,18 +369,68 @@ mod tests {
         let mut ecu_io = EcuIo::new(test_config()).unwrap();
 
         // No client connected: must not queue anything or panic.
-        ecu_io.report_output("inj1", true);
+        ecu_io.report_output("inj1", false);
         ecu_io.poll().unwrap();
 
         let mut client = TcpStream::connect(ecu_io.local_addr().unwrap()).unwrap();
         client.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
         ecu_io.poll().unwrap(); // accept
 
+        // Different level than the pre-connection call, so it's a real change and gets queued.
         ecu_io.report_output("inj1", true);
         ecu_io.poll().unwrap();
 
         let mut buf = [0; 16];
         let n = client.read(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"inj1=1\n");
+    }
+
+    #[test]
+    fn report_output_only_queues_a_line_when_the_level_actually_changes() {
+        let mut ecu_io = EcuIo::new(test_config()).unwrap();
+        let _client = TcpStream::connect(ecu_io.local_addr().unwrap()).unwrap();
+        ecu_io.poll().unwrap(); // accept
+
+        ecu_io.report_output("inj1", true);
+        assert_eq!(ecu_io.outgoing.iter().copied().collect::<Vec<u8>>(), b"inj1=1\n".to_vec());
+
+        ecu_io.outgoing.clear();
+        ecu_io.report_output("inj1", true); // same level again: must not requeue
+        assert!(ecu_io.outgoing.is_empty(), "same level must not queue a second line");
+
+        ecu_io.report_output("inj1", false); // different level: must queue
+        assert_eq!(ecu_io.outgoing.iter().copied().collect::<Vec<u8>>(), b"inj1=0\n".to_vec());
+    }
+
+    #[test]
+    fn a_second_client_is_rejected_while_one_is_already_connected() {
+        let mut ecu_io = EcuIo::new(test_config()).unwrap();
+        let mut client1 = TcpStream::connect(ecu_io.local_addr().unwrap()).unwrap();
+        client1.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        ecu_io.poll().unwrap(); // accept client1
+
+        let mut client2 = TcpStream::connect(ecu_io.local_addr().unwrap()).unwrap();
+        client2.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        for _ in 0..10 {
+            ecu_io.poll().unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        // The second client should have been accepted-then-dropped by `accept_clients`,
+        // never served: it observes either a clean EOF or a reset, but no data.
+        let mut buf = [0; 16];
+        match client2.read(&mut buf) {
+            Ok(0) => {}
+            Err(error)
+                if error.kind() == std::io::ErrorKind::ConnectionReset
+                    || error.kind() == std::io::ErrorKind::ConnectionAborted => {}
+            other => panic!("expected the rejected second client to be disconnected, got {other:?}"),
+        }
+
+        // The first client must be unaffected by the rejected second connection attempt.
+        ecu_io.report_output("inj1", true);
+        ecu_io.poll().unwrap();
+        let n = client1.read(&mut buf).unwrap();
         assert_eq!(&buf[..n], b"inj1=1\n");
     }
 
@@ -361,6 +443,20 @@ mod tests {
 
         assert_eq!(config.pins[0].name, "crank");
         assert_eq!(config.adc_channels[0].name, "map");
+    }
+
+    #[test]
+    fn push_capped_vec_drops_oldest_bytes_once_over_capacity() {
+        let mut buffer = vec![1u8, 2, 3];
+        EcuIo::push_capped_vec(&mut buffer, &[4, 5], 3);
+        assert_eq!(buffer, vec![3, 4, 5]);
+    }
+
+    #[test]
+    fn push_capped_deque_drops_oldest_bytes_once_over_capacity() {
+        let mut queue: std::collections::VecDeque<u8> = vec![1u8, 2, 3].into();
+        EcuIo::push_capped_deque(&mut queue, &[4, 5], 3);
+        assert_eq!(queue.into_iter().collect::<Vec<u8>>(), vec![3, 4, 5]);
     }
 
     // `System` borrows its Unicorn engine mutably (`uc: RefCell<&'a mut Unicorn<'b, ()>>`),

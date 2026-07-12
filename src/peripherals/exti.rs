@@ -25,6 +25,10 @@ impl Exti {
     pub const SWIER: u32 = 0x10;
     pub const PR: u32 = 0x14;
 
+    // EXTICR1-4 are offsets into the *SYSCFG* peripheral, not EXTI's own register block
+    // above (IMR/EMR/RTSR/FTSR/SWIER/PR) - they numerically overlap (e.g. RTSR=0x08 ==
+    // EXTICR1=0x08) but are dispatched through the separate read_exti/read_syscfg match
+    // arms below and so never collide.
     pub const EXTICR1: u32 = 0x08;
     pub const EXTICR2: u32 = 0x0C;
     pub const EXTICR3: u32 = 0x10;
@@ -186,6 +190,19 @@ mod tests {
     fn a_falling_edge_does_not_fire_when_only_rising_is_selected() {
         let mut exti = route_line_6_to_port_c();
         assert_eq!(exti.raise_line_if_configured(2, 6, false), None);
+    }
+
+    #[test]
+    fn a_falling_edge_fires_when_falling_is_selected() {
+        let mut exti = Exti::default();
+        // EXTICR2 covers lines 4-7; line 6 is bits [11:8]; port C = 2.
+        exti.write_syscfg(Exti::EXTICR2, 2 << 8);
+        exti.write_exti(Exti::IMR, 1 << 6);
+        exti.write_exti(Exti::FTSR, 1 << 6);
+
+        let port_c = 2;
+        assert_eq!(exti.raise_line_if_configured(port_c, 6, false), Some(23)); // EXTI9_5
+        assert_eq!(exti.read_exti(Exti::PR) & (1 << 6), 1 << 6);
     }
 
     #[test]
