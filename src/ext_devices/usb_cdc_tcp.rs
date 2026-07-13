@@ -120,8 +120,7 @@ impl UsbCdcTcp {
             }
         }
         if disconnected {
-            info!("USB CDC TCP client disconnected");
-            self.client = None;
+            self.mark_disconnected();
         }
         Ok(())
     }
@@ -150,10 +149,21 @@ impl UsbCdcTcp {
             }
         }
         if disconnected {
-            info!("USB CDC TCP client disconnected");
-            self.client = None;
+            self.mark_disconnected();
         }
         Ok(())
+    }
+
+    // A disconnected client's leftover queued bytes belong to a session
+    // that no longer exists -- left uncleared, they get delivered to
+    // whichever client connects next (observed live: a large stale
+    // response queued for an abandoned TunerStudio session bled into an
+    // unrelated later request's reply, corrupting it).
+    fn mark_disconnected(&mut self) {
+        info!("USB CDC TCP client disconnected");
+        self.client = None;
+        self.to_device.clear();
+        self.from_device.clear();
     }
 
     fn push_capped(queue: &mut VecDeque<u8>, bytes: &[u8], capacity: usize) {
@@ -162,6 +172,63 @@ impl UsbCdcTcp {
                 queue.pop_front();
             }
             queue.push_back(byte);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{io::Read, net::TcpStream, time::Duration};
+
+    use super::{UsbCdcTcp, UsbCdcTcpConfig};
+
+    fn test_config() -> UsbCdcTcpConfig {
+        UsbCdcTcpConfig {
+            peripheral: "OTG_FS_GLOBAL".to_owned(),
+            listen: "127.0.0.1:0".to_owned(),
+            max_buffered_bytes: 65536,
+        }
+    }
+
+    #[test]
+    fn stale_unsent_bytes_do_not_reach_the_next_client_after_a_disconnect() {
+        let mut bridge = UsbCdcTcp::new(test_config()).unwrap();
+        let addr = bridge.local_addr().unwrap();
+
+        let client = TcpStream::connect(addr).unwrap();
+        bridge.poll().unwrap();
+
+        // Queue a response but let the client disconnect before ever
+        // reading it -- these bytes must not survive to the next session.
+        bridge.push_from_device(b"stale response bytes");
+        drop(client);
+
+        for _ in 0..20 {
+            bridge.poll().unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!bridge.is_client_connected());
+
+        let mut new_client = TcpStream::connect(addr).unwrap();
+        new_client
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
+        for _ in 0..5 {
+            bridge.poll().unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let mut buf = [0u8; 64];
+        match new_client.read(&mut buf) {
+            Ok(count) => assert_eq!(
+                count, 0,
+                "a new client must not receive stale bytes queued for the old session"
+            ),
+            Err(error) => assert!(
+                error.kind() == std::io::ErrorKind::WouldBlock
+                    || error.kind() == std::io::ErrorKind::TimedOut,
+                "unexpected error waiting for (no) data: {error:?}"
+            ),
         }
     }
 }
