@@ -254,6 +254,22 @@ impl OtgFs {
 
     pub fn virtual_host_reset(&mut self) {
         self.set_global_interrupt_status(Self::USB_RESET);
+        // A real bus reset clears endpoint configuration and any in-flight
+        // FIFO contents. Without this, only the very first client (since
+        // process start) ever gets a real enumeration: virtual_host_step
+        // would stay Configured forever, and EP0 OUT's USBAEP bit would
+        // stay set forever, so the GET_DESCRIPTOR re-injection trigger in
+        // register_write (which fires on that bit's 0->1 edge while
+        // AwaitingDeviceDescriptor) would never fire again for a later
+        // reconnect.
+        self.virtual_host_step = VirtualHostStep::AwaitingDeviceDescriptor;
+        self.ep_in = [EndpointRegs::default(); Self::NUM_ENDPOINTS];
+        self.ep_out = [EndpointRegs::default(); Self::NUM_ENDPOINTS];
+        self.rx_fifo.clear();
+        self.rx_status.clear();
+        for fifo in &mut self.tx_fifo {
+            fifo.clear();
+        }
     }
 
     fn pop_rx_fifo_word(&mut self) -> u32 {
@@ -883,5 +899,33 @@ mod tests {
         assert!(
             otg.register_read(OtgFs::DIEP_BASE + OtgFs::DTXFSTS_OFFSET) * 4 >= 64
         );
+    }
+
+    #[test]
+    fn virtual_host_reset_allows_a_second_client_to_re_enumerate() {
+        let mut otg = OtgFs::for_test();
+
+        // First host attach: firmware arms EP0 OUT, and that must inject the
+        // first GET_DESCRIPTOR SETUP packet, exactly like real enumeration.
+        otg.virtual_host_reset();
+        otg.register_write(OtgFs::DOEP_BASE, OtgFs::DOEPCTL_USBAEP);
+        assert_eq!(otg.next_setup_request(), OtgFs::get_device_descriptor_packet());
+
+        // Simulate the rest of enumeration completing, firmware consuming
+        // that SETUP packet, and the client disconnecting.
+        otg.rx_fifo.clear();
+        otg.rx_status.clear();
+        otg.virtual_host_step = VirtualHostStep::Configured;
+
+        // A new client connects: a second, independent host attach.
+        otg.virtual_host_reset();
+        assert_eq!(otg.virtual_host_step, VirtualHostStep::AwaitingDeviceDescriptor);
+
+        // Firmware, seeing the new bus reset, re-arms EP0 OUT exactly as
+        // before — this must inject a fresh GET_DESCRIPTOR SETUP packet,
+        // not silently skip enumeration because EP0 OUT looks "already
+        // active" from the first client's session.
+        otg.register_write(OtgFs::DOEP_BASE, OtgFs::DOEPCTL_USBAEP);
+        assert_eq!(otg.next_setup_request(), OtgFs::get_device_descriptor_packet());
     }
 }
