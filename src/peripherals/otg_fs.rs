@@ -528,6 +528,19 @@ impl OtgFs {
                         if self.ep_in[ep].tsiz & Self::XFRSIZ_MASK == 0 {
                             self.ep_in[ep].ctl &= !Self::DIEPCTL_EPENA;
                             self.complete_in_transfer(ep);
+                        } else if self.diep_empty_mask & (1 << ep) != 0 {
+                            // DIEPINT.TXFE is a level condition ("this
+                            // endpoint's TX FIFO has room"), not a one-shot
+                            // edge fired only when DIEPEMPMSK is first
+                            // written. A response chunked across several
+                            // transfers keeps the mask bit enabled the
+                            // whole time rather than toggling it per chunk
+                            // (see DIEPEMPMSK's handler above for the first
+                            // chunk's case) -- without this, only that
+                            // first chunk ever gets a TXFE, and every later
+                            // chunk waits forever for an interrupt that
+                            // never comes.
+                            self.raise_in_endpoint_interrupt(ep, Self::DIEPINT_TXFE);
                         }
                     }
                 }
@@ -913,6 +926,63 @@ mod tests {
         assert_ne!(
             otg.register_read(OtgFs::DIEP_BASE + OtgFs::EP_INT_OFFSET) & OtgFs::DIEPINT_TXFE,
             0
+        );
+    }
+
+    #[test]
+    fn arming_a_later_chunk_reraises_txfe_while_the_mask_stays_enabled() {
+        // Real hardware's DIEPINT.TXFE is a level condition ("this
+        // endpoint's TX FIFO has room"), not a one-shot edge fired only
+        // when the mask is first enabled. A large response chunked across
+        // several transfers (observed live: rusEFI's sendResponse splits a
+        // ~3.5KB page read into ~512-byte pushes) keeps the empty-mask bit
+        // enabled across chunks rather than toggling it per chunk, relying
+        // on TXFE re-asserting each time the next chunk's transfer is
+        // armed. Without this, only the very first chunk after the mask is
+        // enabled ever gets a TXFE, and every later chunk waits forever
+        // for an interrupt that never comes -- the response stalls
+        // partway through.
+        let mut otg = OtgFs::for_test();
+        otg.set_bulk_endpoints(1, 1);
+
+        // Chunk 1: arm, then enable the mask (first TXFE, already covered
+        // by the test above).
+        otg.register_write(OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_TSIZ_OFFSET, 4);
+        otg.register_write(
+            OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_CTL_OFFSET,
+            OtgFs::DIEPCTL_EPENA,
+        );
+        otg.register_write(OtgFs::DIEPEMPMSK, 0x0000_0002);
+        otg.register_write(
+            OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_INT_OFFSET,
+            OtgFs::DIEPINT_TXFE,
+        );
+
+        // Firmware completes chunk 1 by pushing its 4 bytes, then acks the
+        // resulting XFRC.
+        otg.register_write(OtgFs::FIFO_BASE + OtgFs::FIFO_WINDOW, 0x0403_0201);
+        otg.register_write(
+            OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_INT_OFFSET,
+            OtgFs::DIEPINT_XFRC,
+        );
+        assert_eq!(
+            otg.register_read(OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_INT_OFFSET),
+            0
+        );
+
+        // Chunk 2: arm again, *without* touching DIEPEMPMSK -- the mask
+        // bit was never cleared, matching how firmware behaves live.
+        otg.register_write(OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_TSIZ_OFFSET, 4);
+        otg.register_write(
+            OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_CTL_OFFSET,
+            OtgFs::DIEPCTL_EPENA,
+        );
+
+        assert_ne!(
+            otg.register_read(OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_INT_OFFSET)
+                & OtgFs::DIEPINT_TXFE,
+            0,
+            "TXFE must re-fire for the next chunk even though the mask was left enabled"
         );
     }
 
