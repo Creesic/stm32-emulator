@@ -19,6 +19,10 @@ pub struct Nvic {
 
 const IRQ_OFFSET: i32 = 16;
 
+// ITSTATE (IT-block execution/predication state) is split across two XPSR
+// fields: bits [15:10] hold ITSTATE[7:2], bits [26:25] hold ITSTATE[1:0].
+const XPSR_ITSTATE_MASK: u32 = 0x0600_fc00;
+
 pub mod irq {
     pub const PENDSV: i32 = -2;
     pub const SYSTICK: i32 = -1;
@@ -118,6 +122,16 @@ impl Nvic {
         );
 
         Self::push_regs(&mut uc, spsel, fpca);
+
+        // Real hardware clears ITSTATE unconditionally on exception entry --
+        // the interrupted context's IT state was just preserved in the xPSR
+        // pushed above, and return_from_interrupt's pop_regs restores it.
+        // Without this, an interrupt taken between an IT instruction and its
+        // predicated followers leaves stale predication state active for
+        // the handler's own first instructions.
+        let xpsr = uc.reg_read(RegisterARM::XPSR).unwrap() as u32;
+        uc.reg_write(RegisterARM::XPSR, (xpsr & !XPSR_ITSTATE_MASK) as u64)
+            .unwrap();
 
         // LR meaning:
         //   EXC_RETURN    Return to      Return stack Frame type
@@ -366,3 +380,45 @@ impl Peripheral for NvicWrapper {
 0xE000E448 B  REGISTER IPR18 (rw): Interrupt Priority Register
 0xE000E44C B  REGISTER IPR19 (rw): Interrupt Priority Register
 */
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use unicorn_engine::{
+        unicorn_const::{Arch, Mode, Prot},
+        ArmCpuModel, RegisterARM, Unicorn,
+    };
+
+    use super::{Nvic, XPSR_ITSTATE_MASK};
+    use crate::{ext_devices::ExtDevices, peripherals::Peripherals, system::System};
+
+    fn test_parts() -> (Unicorn<'static, ()>, Rc<Peripherals>, Rc<ExtDevices>) {
+        let mut uc = Unicorn::new(Arch::ARM, Mode::THUMB | Mode::LITTLE_ENDIAN).unwrap();
+        uc.ctl_set_cpu_model(ArmCpuModel::CORTEX_M4 as i32).unwrap();
+        (uc, Rc::new(Peripherals::default()), Rc::new(ExtDevices::default()))
+    }
+
+    #[test]
+    fn run_interrupt_clears_itstate_before_entering_the_handler() {
+        let (mut uc, p, d) = test_parts();
+        uc.mem_map(0x0000_0000, 0x1000, Prot::ALL).unwrap();
+        uc.mem_map(0x2000_0000, 0x1000, Prot::ALL).unwrap();
+        // Vector table word for IRQ 0 (vector index IRQ_OFFSET + 0 = 16).
+        uc.mem_write(4 * 16, &0x0000_1001u32.to_le_bytes()).unwrap();
+        uc.reg_write(RegisterARM::MSP, 0x2000_0100).unwrap();
+        uc.reg_write(RegisterARM::CONTROL, 0).unwrap();
+        // Simulate the interrupted context being mid-IT-block.
+        uc.reg_write(RegisterARM::XPSR, 0x0600_fc00).unwrap();
+
+        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        Nvic::default().run_interrupt(&sys, 0x0000_0000, 0);
+
+        let xpsr = sys.uc.borrow_mut().reg_read(RegisterARM::XPSR).unwrap() as u32;
+        assert_eq!(
+            xpsr & XPSR_ITSTATE_MASK,
+            0,
+            "ITSTATE bits must be cleared on interrupt entry"
+        );
+    }
+}
