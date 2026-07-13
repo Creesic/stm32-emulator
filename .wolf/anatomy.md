@@ -1,7 +1,26 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-07-11T16:41:22.879Z
-> Files: 60 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-12T19:58:16.294Z
+> Files: 93 tracked | Anatomy hits: 0 | Misses: 0
+
+## ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/
+
+- `config.yaml` (~192 tok)
+- `ecu_io_client.py` — send (~124 tok)
+- `elfcompare.py` (~383 tok)
+- `find_callers.sh` (~179 tok)
+- `find_stacks.sh` (~184 tok)
+- `findobnotify.sh` (~81 tok)
+- `findsyms.sh` (~93 tok)
+- `resolve_can.sh` (~65 tok)
+- `resolve_idle_seq.sh` (~90 tok)
+- `resolve_tim5.sh` (~103 tok)
+- `resolve_vectors.sh` (~104 tok)
+- `resolve.sh` (~82 tok)
+- `resolve2.sh` (~83 tok)
+- `resolve3.sh` (~76 tok)
+- `symlookup.py` — find (~289 tok)
+- `ts_query.py` (~169 tok)
 
 ## ./
 
@@ -22,6 +41,15 @@
 
 - `openwolf.md` (~313 tok)
 
+## .superpowers/sdd/
+
+- `final-review-fixes-report.md` — Final Review Fixes Report — Proteus F7 ECU I/O (6 Minor Findings) (~2590 tok)
+- `task-1-report.md` — Task 1 Report: EcuIo Core — TCP Bridge and name=value Protocol (~1359 tok)
+- `task-2-report.md` — Task 2 Report: Wire `EcuIo` into GPIO and `ExtDevices` (~2075 tok)
+- `task-3-report.md` — Task 3 Report: `Adc` peripheral (ADC1 only) (~2176 tok)
+- `task-4-report.md` — Task 4 Report: Model EXTI/SYSCFG so crank/cam edges actually reach firmware (~2533 tok)
+- `task-5-report.md` — Task 5 Report: Configure Proteus F7 and verify live (~2854 tok)
+
 ## .wolf/
 
 - `anatomy.md` — Repository file map and navigation guidance (~650 tok)
@@ -30,14 +58,22 @@
 - `memory.md` — Chronological OpenWolf action log (~100 tok)
 - `OPENWOLF.md` — OpenWolf operating protocol (~1300 tok)
 
+## docs/
+
+- `proteus-f7-ecu-io.md` — Proteus F7 ECU I/O (~1365 tok)
+- `proteus-f7-usb.md` — Proteus F7 Virtual USB CDC (~1104 tok)
+
 ## docs/superpowers/plans/
 
 - `2026-07-10-proteus-f7-bringup.md` — Task-by-task plan for reproducible Proteus F767 boot verification (~2400 tok)
+- `2026-07-10-proteus-f7-virtual-usb.md` — Proteus F7 Virtual USB Implementation Plan (~12781 tok)
+- `2026-07-11-proteus-f7-ecu-io.md` — Proteus F7 ECU I/O Implementation Plan (~17036 tok)
 
 ## docs/superpowers/specs/
 
 - `2026-07-10-native-launcher-design.md` — Approved static-profile native launcher design (~700 tok)
 - `2026-07-10-proteus-f7-bringup-design.md` — Approved staged boot and hardware-modeling design (~650 tok)
+- `2026-07-11-proteus-f7-ecu-io-design.md` — Proteus F7 ECU I/O Design (~2237 tok)
 
 ## monox/
 
@@ -45,10 +81,12 @@
 
 ## proteus_f7/
 
-- `config.yaml` (~191 tok)
+- `boot-sequence-notes.md` — Proteus F7 boot-sequence trace evidence (~3758 tok)
+- `config.yaml` (~324 tok)
 - `README.md` — Local asset setup and bounded trace commands (~90 tok)
 - `setup.ps1` — Copies firmware and extracts the exact F767 SVD from ST's archive (~190 tok)
-- `verify_boot.ps1` — Preflight and reset-handler smoke test for local Proteus F767 assets (~390 tok)
+- `usb_trace_notes.md` — Proteus F7 OTG-FS trace evidence (~6445 tok)
+- `verify_boot.ps1` (~696 tok)
 - `verify_fpu.ps1` — Bounded post-VDIV Cortex-M7 smoke test for local Proteus F767 assets (~430 tok)
 
 ## saturn/
@@ -57,7 +95,7 @@
 
 ## src/
 
-- `emulator.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~3439 tok)
+- `emulator.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~3440 tok)
 
 ## src/bin/
 
@@ -71,8 +109,9 @@
 ## src/ext_devices/
 
 - `display.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1865 tok)
+- `ecu_io.rs` — Defensive cap on `recv_buffer`/`outgoing` growth against a stalled or malicious (~5473 tok)
 - `lcd.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1257 tok)
-- `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1144 tok)
+- `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1889 tok)
 - `spi_flash.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1135 tok)
 - `touchscreen.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1527 tok)
 - `usart_probe.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~328 tok)
@@ -90,15 +129,17 @@
 
 ## src/peripherals/
 
+- `adc.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~2512 tok)
 - `dma.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1849 tok)
 - `dwt.rs` — ARM CoreSight DWT unit. Firmware uses DWT->CYCCNT for microsecond-precision (~462 tok)
+- `exti.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1930 tok)
 - `flash.rs` — minimal FLASH ACR latency model for F767 startup (~250 tok)
 - `fsmc.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1537 tok)
-- `gpio.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~2343 tok)
+- `gpio.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~2184 tok)
 - `i2c.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~386 tok)
-- `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~4018 tok)
+- `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~4099 tok)
 - `nvic.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~3481 tok)
-- `otg_fs.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1228 tok)
+- `otg_fs.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~9764 tok)
 - `pwr.rs` — Minimal PWR CR1/CSR1 voltage-scaling readiness model (~250 tok)
 - `rcc.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~256 tok)
 - `scb.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~593 tok)
@@ -106,6 +147,7 @@
 - `sw_spi.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1032 tok)
 - `systick.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~512 tok)
 - `tim11.rs` — TIM11 capture-ready status model used by Proteus F7 startup (~300 tok)
+- `tim5.rs` — rusEFI's sole hardware timebase (`getTimeNowNt()`/`getTimeNowUs()` read (~995 tok)
 - `usart.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~615 tok)
 
 ## tests/
