@@ -93,6 +93,33 @@ pub struct MemoryRegion {
     pub load_firmware: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct UsbCdcTcpDevice {
+    pub peripheral: &'static str,
+    pub listen: &'static str,
+    pub max_buffered_bytes: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct EcuIoPin {
+    pub name: &'static str,
+    pub pin: &'static str,
+    pub direction: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct EcuIoAdcChannel {
+    pub name: &'static str,
+    pub pin: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct EcuIoDevice {
+    pub listen: &'static str,
+    pub pins: &'static [EcuIoPin],
+    pub adc_channels: &'static [EcuIoAdcChannel],
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedProfile {
     pub variant: KnownVariant,
@@ -101,6 +128,8 @@ pub struct ResolvedProfile {
     pub firmware: PathBuf,
     pub svd: PathBuf,
     pub regions: Vec<MemoryRegion>,
+    pub usb_cdc_tcp: Option<UsbCdcTcpDevice>,
+    pub ecu_io: Option<EcuIoDevice>,
 }
 
 impl ResolvedProfile {
@@ -120,6 +149,8 @@ impl ResolvedProfile {
             firmware,
             svd,
             regions: template.regions.to_vec(),
+            usb_cdc_tcp: template.usb_cdc_tcp,
+            ecu_io: template.ecu_io,
         })
     }
 
@@ -153,10 +184,21 @@ impl ResolvedProfile {
                     load_firmware: false,
                 },
             ],
+            usb_cdc_tcp: None,
+            ecu_io: None,
         }
     }
 
     pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
+        let devices = if self.usb_cdc_tcp.is_some() || self.ecu_io.is_some() {
+            Some(YamlDevices {
+                usb_cdc_tcp: self.usb_cdc_tcp.iter().copied().collect(),
+                ecu_io: self.ecu_io.iter().copied().collect(),
+            })
+        } else {
+            None
+        };
+
         serde_yaml::to_string(&YamlConfig {
             cpu: YamlCpu {
                 model: self.cpu_model,
@@ -175,6 +217,7 @@ impl ResolvedProfile {
                         .then(|| self.firmware.to_string_lossy()),
                 })
                 .collect(),
+            devices,
         })
     }
 }
@@ -204,6 +247,8 @@ struct ProfileTemplate {
     cpu_model: LauncherCpuModel,
     vector_table: u32,
     regions: &'static [MemoryRegion],
+    usb_cdc_tcp: Option<UsbCdcTcpDevice>,
+    ecu_io: Option<EcuIoDevice>,
 }
 
 const PROTEUS_F7_REGIONS: [MemoryRegion; 7] = [
@@ -251,16 +296,51 @@ const PROTEUS_F7_REGIONS: [MemoryRegion; 7] = [
     },
 ];
 
+const PROTEUS_F7_ECU_IO_PINS: [EcuIoPin; 4] = [
+    EcuIoPin { name: "crank", pin: "PC6", direction: "input" },
+    EcuIoPin { name: "cam", pin: "PE11", direction: "input" },
+    EcuIoPin { name: "inj1", pin: "PD7", direction: "output" },
+    EcuIoPin { name: "ign1", pin: "PD4", direction: "output" },
+];
+
+const PROTEUS_F7_ECU_IO_ADC_CHANNELS: [EcuIoAdcChannel; 5] = [
+    EcuIoAdcChannel { name: "map", pin: "PC0" },
+    EcuIoAdcChannel { name: "tps", pin: "PC1" },
+    EcuIoAdcChannel { name: "clt", pin: "PB0" },
+    EcuIoAdcChannel { name: "iat", pin: "PC5" },
+    EcuIoAdcChannel { name: "vbatt", pin: "PA7" },
+];
+
 const PROTEUS_F7_PROFILE: ProfileTemplate = ProfileTemplate {
     cpu_model: LauncherCpuModel::CortexM7,
     vector_table: 0x0020_0000,
     regions: &PROTEUS_F7_REGIONS,
+    usb_cdc_tcp: Some(UsbCdcTcpDevice {
+        peripheral: "OTG_FS_GLOBAL",
+        listen: "127.0.0.1:29000",
+        max_buffered_bytes: 65536,
+    }),
+    ecu_io: Some(EcuIoDevice {
+        listen: "127.0.0.1:29002",
+        pins: &PROTEUS_F7_ECU_IO_PINS,
+        adc_channels: &PROTEUS_F7_ECU_IO_ADC_CHANNELS,
+    }),
 };
 
 #[derive(Serialize)]
 struct YamlConfig<'a> {
     cpu: YamlCpu<'a>,
     regions: Vec<YamlRegion<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    devices: Option<YamlDevices>,
+}
+
+#[derive(Serialize)]
+struct YamlDevices {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    usb_cdc_tcp: Vec<UsbCdcTcpDevice>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    ecu_io: Vec<EcuIoDevice>,
 }
 
 #[derive(Serialize)]

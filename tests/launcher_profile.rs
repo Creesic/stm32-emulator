@@ -66,6 +66,42 @@ fn proteus_f7_yaml_selects_cortex_m7() {
 }
 
 #[test]
+fn proteus_f7_yaml_includes_the_usb_cdc_tcp_and_ecu_io_devices() {
+    let profile = ResolvedProfile::for_variant(
+        KnownVariant::proteus_f7(),
+        PathBuf::from("rusefi.bin"),
+        PathBuf::from("STM32F767.svd"),
+    )
+    .unwrap();
+
+    let yaml = profile.to_yaml().unwrap();
+    assert!(yaml.contains("usb_cdc_tcp"));
+    assert!(yaml.contains("peripheral: OTG_FS_GLOBAL"));
+    assert!(yaml.contains("127.0.0.1:29000"));
+    assert!(yaml.contains("max_buffered_bytes: 65536"));
+    assert!(yaml.contains("ecu_io"));
+    assert!(yaml.contains("127.0.0.1:29002"));
+    assert!(yaml.contains("name: crank"));
+    assert!(yaml.contains("direction: input"));
+}
+
+#[test]
+fn manual_profile_yaml_has_no_devices_section() {
+    let profile = ResolvedProfile::manual(
+        LauncherCpuModel::CortexM4,
+        PathBuf::from("firmware.bin"),
+        PathBuf::from("chip.svd"),
+        0x0800_0000,
+        0x0800_0000,
+        0x0010_0000,
+        0x2000_0000,
+        0x0002_0000,
+    );
+
+    assert!(!profile.to_yaml().unwrap().contains("devices"));
+}
+
+#[test]
 fn manual_profile_yaml_uses_the_selected_cpu_model() {
     let profile = ResolvedProfile::manual(
         LauncherCpuModel::CortexM4,
