@@ -9,10 +9,11 @@ use imgui::{Condition, Context, FontSource, Ui};
 use imgui_glium_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use stm32_emulator::launcher::process::{
-    discover_emulator, validate_firmware, OutputStream, RunningEmulator, TemporaryConfig,
+    discover_emulator, validate_firmware, OutputStream, ProcessState, RunningEmulator,
+    TemporaryConfig,
 };
 use stm32_emulator::launcher::registry::{all_variants, support_summary};
-use stm32_emulator::launcher::ui_state::LauncherState;
+use stm32_emulator::launcher::ui_state::{LauncherState, RunStatus};
 use stm32_emulator::launcher::workspace::{
     SavedLauncherState, WindowPlacement, WorkspaceStore,
 };
@@ -25,6 +26,7 @@ const PANEL: [f32; 4] = [0.133, 0.165, 0.208, 1.0];
 const AMBER: [f32; 4] = [0.949, 0.722, 0.294, 1.0];
 const CYAN: [f32; 4] = [0.314, 0.769, 0.827, 1.0];
 const RED: [f32; 4] = [0.878, 0.424, 0.459, 1.0];
+const GRAY: [f32; 4] = [0.6, 0.6, 0.6, 1.0];
 
 #[derive(Default)]
 struct ManualForm {
@@ -173,7 +175,7 @@ impl App {
                 .map_err(|error| error.to_string())?;
             self.temporary_config = Some(temporary_config);
             self.process = Some(process);
-            self.state.running = true;
+            self.state.status = RunStatus::Running;
             Ok::<(), String>(())
         })();
         self.state.last_error = result.err();
@@ -187,18 +189,25 @@ impl App {
         }
         self.process = None;
         self.temporary_config = None;
-        self.state.running = false;
+        self.state.status = RunStatus::Halted;
     }
 
     fn refresh_process(&mut self) {
         if let Some(process) = self.process.as_mut() {
             process.poll_output();
-            match process.is_running() {
-                Ok(true) => {}
-                Ok(false) => self.state.running = false,
+            match process.poll_state() {
+                Ok(ProcessState::Running) => {}
+                Ok(ProcessState::Exited { success: true }) => {
+                    self.state.status = RunStatus::Halted;
+                }
+                Ok(ProcessState::Exited { success: false }) => {
+                    self.state.status = RunStatus::Crashed;
+                    self.state.last_error =
+                        Some("Emulator exited with a non-zero status.".to_owned());
+                }
                 Err(error) => {
                     self.state.last_error = Some(error.to_string());
-                    self.state.running = false;
+                    self.state.status = RunStatus::Crashed;
                 }
             }
         }
@@ -358,12 +367,34 @@ fn draw_signal_chain(ui: &Ui, app: &App) {
             ui.same_line();
             ui.text("→");
             ui.same_line();
-            indicator(ui, "4  Emulator", app.state.running);
+            emulator_step_indicator(ui, app.state.status);
         });
 }
 
 fn indicator(ui: &Ui, label: &str, active: bool) {
     ui.text_colored(if active { CYAN } else { AMBER }, label);
+}
+
+fn status_color(status: RunStatus) -> [f32; 4] {
+    match status {
+        RunStatus::Idle => GRAY,
+        RunStatus::Running => CYAN,
+        RunStatus::Halted => AMBER,
+        RunStatus::Crashed => RED,
+    }
+}
+
+fn status_label(status: RunStatus) -> &'static str {
+    match status {
+        RunStatus::Idle => "Idle",
+        RunStatus::Running => "Running",
+        RunStatus::Halted => "Halted",
+        RunStatus::Crashed => "Crashed",
+    }
+}
+
+fn emulator_step_indicator(ui: &Ui, status: RunStatus) {
+    ui.text_colored(status_color(status), "4  Emulator");
 }
 
 fn draw_firmware_panel(ui: &Ui, app: &mut App) {
@@ -546,10 +577,7 @@ fn draw_output_panel(ui: &Ui, app: &mut App) {
                 app.stop();
             }
             ui.same_line();
-            ui.text_colored(
-                if app.state.running { CYAN } else { AMBER },
-                if app.state.running { "Running" } else { "Idle" },
-            );
+            ui.text_colored(status_color(app.state.status), status_label(app.state.status));
             if run_clicked {
                 app.start();
             }
@@ -592,4 +620,25 @@ fn support_label(support: EmulationSupport) -> &'static str {
 fn display_path(path: Option<&Path>) -> String {
     path.map(|path| path.display().to_string())
         .unwrap_or_else(|| "not selected".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_run_status_maps_to_a_distinct_color() {
+        assert_eq!(status_color(RunStatus::Idle), GRAY);
+        assert_eq!(status_color(RunStatus::Running), CYAN);
+        assert_eq!(status_color(RunStatus::Halted), AMBER);
+        assert_eq!(status_color(RunStatus::Crashed), RED);
+    }
+
+    #[test]
+    fn each_run_status_has_a_label() {
+        assert_eq!(status_label(RunStatus::Idle), "Idle");
+        assert_eq!(status_label(RunStatus::Running), "Running");
+        assert_eq!(status_label(RunStatus::Halted), "Halted");
+        assert_eq!(status_label(RunStatus::Crashed), "Crashed");
+    }
 }
