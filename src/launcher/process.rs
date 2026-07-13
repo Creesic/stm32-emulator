@@ -80,6 +80,16 @@ pub fn discover_emulator(provided: Option<&Path>) -> Result<PathBuf, ProcessErro
     })
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProcessState {
+    Running,
+    Exited { success: bool },
+}
+
+fn classify_exit(status: std::process::ExitStatus) -> ProcessState {
+    ProcessState::Exited { success: status.success() }
+}
+
 pub struct RunningEmulator {
     child: Child,
     receiver: Receiver<OutputLine>,
@@ -141,8 +151,11 @@ impl RunningEmulator {
         &self.output
     }
 
-    pub fn is_running(&mut self) -> Result<bool, ProcessError> {
-        Ok(self.child.try_wait().map_err(ProcessError::io)?.is_none())
+    pub fn poll_state(&mut self) -> Result<ProcessState, ProcessError> {
+        match self.child.try_wait().map_err(ProcessError::io)? {
+            None => Ok(ProcessState::Running),
+            Some(status) => Ok(classify_exit(status)),
+        }
     }
 
     pub fn stop(&mut self) -> Result<(), ProcessError> {
@@ -212,3 +225,27 @@ impl fmt::Display for ProcessError {
 }
 
 impl std::error::Error for ProcessError {}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use std::os::windows::process::ExitStatusExt;
+    use std::process::ExitStatus;
+
+    use super::{classify_exit, ProcessState};
+
+    #[test]
+    fn a_zero_exit_code_is_classified_as_a_successful_exit() {
+        assert_eq!(
+            classify_exit(ExitStatus::from_raw(0)),
+            ProcessState::Exited { success: true }
+        );
+    }
+
+    #[test]
+    fn a_nonzero_exit_code_is_classified_as_a_failed_exit() {
+        assert_eq!(
+            classify_exit(ExitStatus::from_raw(1)),
+            ProcessState::Exited { success: false }
+        );
+    }
+}
