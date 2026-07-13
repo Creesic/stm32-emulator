@@ -206,7 +206,7 @@ struct ProfileTemplate {
     regions: &'static [MemoryRegion],
 }
 
-const PROTEUS_F7_REGIONS: [MemoryRegion; 6] = [
+const PROTEUS_F7_REGIONS: [MemoryRegion; 7] = [
     MemoryRegion {
         name: "ROM-ITCM-alias",
         start: 0x0020_0000,
@@ -223,6 +223,12 @@ const PROTEUS_F7_REGIONS: [MemoryRegion; 6] = [
         name: "ITCM-RAM",
         start: 0x0000_0000,
         size: 0x0000_4000,
+        load_firmware: false,
+    },
+    MemoryRegion {
+        name: "System-identifiers",
+        start: 0x1ff0_f000,
+        size: 0x0000_1000,
         load_firmware: false,
     },
     MemoryRegion {
