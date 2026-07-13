@@ -134,6 +134,7 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
 
             if n % interrupt_period as u64 == 0 {
                 let sys = System { uc: RefCell::new(uc), p: p.clone(), d: d.clone() };
+                p.nvic.borrow_mut().note_fetched_instruction(&sys, pc);
                 p.nvic.borrow_mut().run_pending_interrupts(&sys, vector_table_addr);
             }
 
@@ -194,7 +195,15 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
                     p.nvic.borrow_mut().enter_svcall(&sys, vector_table_addr);
                 }
                 3 => {
-                    error!("intr_hook intno={:08x}", exception);
+                    let xpsr = uc.reg_read(RegisterARM::XPSR).unwrap_or(0);
+                    let lr = uc.reg_read(RegisterARM::LR).unwrap_or(0);
+                    let sp = uc.reg_read(RegisterARM::SP).unwrap_or(0);
+                    let primask = uc.reg_read(RegisterARM::PRIMASK).unwrap_or(0);
+                    let basepri = uc.reg_read(RegisterARM::BASEPRI).unwrap_or(0);
+                    error!(
+                        "intr_hook intno={:08x} xpsr={:08x} lr={:08x} sp={:08x} primask={:08x} basepri={:08x}",
+                        exception, xpsr, lr, sp, primask, basepri
+                    );
                 }
                 _ => {
                     error!("intr_hook intno={:08x}", exception);

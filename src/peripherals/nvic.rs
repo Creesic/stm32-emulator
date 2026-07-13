@@ -15,6 +15,22 @@ pub struct Nvic {
     // 128 different interrupts. Good enough for now
     pending: u128,
     in_interrupt: bool,
+    // How many more fetched instructions (after the current one) are still
+    // inside an IT block's predicated span. Tracked by hand from the actual
+    // fetched instruction bytes (see note_fetched_instruction) rather than
+    // read from XPSR: live testing showed Unicorn's exposed XPSR does not
+    // reliably reflect condexec/ITSTATE at the moment a hook reads it
+    // (dispatch kept landing squarely inside IT blocks despite an
+    // XPSR-based check saying it was clear), so this doesn't depend on the
+    // CPU exposing that state at all.
+    it_block_remaining: u8,
+    // Whether the instruction note_fetched_instruction last looked at must
+    // not be interrupted -- computed there (using it_block_remaining's
+    // value from *before* this instruction's own decrement) and read here
+    // by run_pending_interrupts, so the last predicated instruction of a
+    // block is correctly still seen as blocked at its own tick rather than
+    // reading the post-decrement (already-zero) value.
+    it_block_active_now: bool,
 }
 
 const IRQ_OFFSET: i32 = 16;
@@ -81,12 +97,55 @@ impl Nvic {
     pub fn run_pending_interrupts(&mut self, sys: &System, vector_table_addr: u32) {
         self.maybe_set_systick_intr_pending();
 
-        if Self::are_interrupts_disabled(sys) || self.in_interrupt {
+        if Self::are_interrupts_disabled(sys) || self.in_interrupt || self.it_block_active_now {
             return;
         }
 
         if let Some(irq) = self.get_and_clear_next_intr_pending() {
             self.run_interrupt(sys, vector_table_addr, irq);
+        }
+    }
+
+    /// Call once per fetched instruction, before `run_pending_interrupts`,
+    /// so it can tell whether the CPU is currently mid-IT-block.
+    ///
+    /// Observed live: dispatching (writing PC to the vector) while the CPU
+    /// is mid-IT-block does not reliably redirect execution -- the CPU kept
+    /// retiring the IT block's remaining predicated instructions as if the
+    /// PC write never happened, eventually hitting an unrelated `bx lr`
+    /// misinterpreted as a raw jump to the literal EXC_RETURN bit pattern
+    /// instead of a real exception return. An XPSR-based check (reading
+    /// ITSTATE back) did not catch this either -- dispatch kept landing
+    /// squarely inside IT blocks regardless, meaning Unicorn's exposed
+    /// XPSR does not reliably reflect live condexec/ITSTATE at the moment a
+    /// hook reads it. So this decodes the actual fetched instruction bytes
+    /// by hand instead of trusting any CPU-exposed predication state.
+    pub fn note_fetched_instruction(&mut self, sys: &System, pc: u64) {
+        let mut instr = [0u8; 2];
+        if sys.uc.borrow().mem_read(pc, &mut instr).is_err() {
+            self.it_block_active_now = self.it_block_remaining > 0;
+            return;
+        }
+        let halfword = u16::from_le_bytes(instr);
+        // Thumb-2 IT instruction encoding: 1011 1111 cccc mmmm (mask != 0).
+        if halfword & 0xff00 == 0xbf00 && halfword & 0x000f != 0 {
+            let mask = (halfword & 0x000f) as u32;
+            // The lowest set mask bit marks how many instructions the block
+            // covers: 4 total for 0b0001, 3 for 0b0010, 2 for 0b0100, 1 for
+            // 0b1000. The IT instruction itself is not part of the unsafe
+            // span -- only the predicated instructions that follow it --
+            // but conservatively treat its own tick as unsafe too.
+            self.it_block_remaining = 4 - mask.trailing_zeros() as u8;
+            self.it_block_active_now = true;
+            return;
+        }
+        // Check using the value as of *before* this instruction consumes
+        // its slot -- the last predicated instruction of a block must
+        // still read as "active" here, only dropping to inactive on the
+        // instruction that follows the whole block.
+        self.it_block_active_now = self.it_block_remaining > 0;
+        if self.it_block_active_now {
+            self.it_block_remaining -= 1;
         }
     }
 
@@ -155,6 +214,20 @@ impl Nvic {
         uc.reg_write(RegisterARM::IPSR, irq as u64).unwrap();
         uc.reg_write(RegisterARM::PC, vector as u64).unwrap();
 
+        // A PC write from inside a code/interrupt hook is not guaranteed to
+        // redirect execution immediately -- observed live: an interrupt
+        // landing mid-way through a long straight-line (branch-free)
+        // instruction run kept executing the OLD instruction stream for
+        // several more instructions before the write ever took effect,
+        // eventually hitting an unrelated `bx lr` that got misinterpreted
+        // as a raw jump to the literal EXC_RETURN bit pattern instead of a
+        // real exception return. emu_stop() forces the current emu_start()
+        // call to return; the main loop already re-enters at whatever PC
+        // it reads back afterward (the same pattern used for busy-loop-stop
+        // and the SDL-quit-stop below), so the vector is always started
+        // fresh rather than relying on an in-flight PC write taking effect.
+        uc.emu_stop().unwrap();
+
         self.in_interrupt = true;
     }
 
@@ -206,6 +279,11 @@ impl Nvic {
                 uc.reg_read(RegisterARM::PC).unwrap()
             );
         }
+
+        // Same reasoning as run_interrupt's emu_stop() call: the restored
+        // PC was just written via pop_regs, and must not rely on an
+        // in-flight register write to redirect the CPU's next fetch.
+        uc.emu_stop().unwrap();
 
         self.in_interrupt = false;
     }
@@ -420,5 +498,77 @@ mod tests {
             0,
             "ITSTATE bits must be cleared on interrupt entry"
         );
+    }
+
+    #[test]
+    fn pending_dispatch_is_deferred_while_mid_it_block_then_fires_once_clear() {
+        let (mut uc, p, d) = test_parts();
+        uc.mem_map(0x0000_0000, 0x1000, Prot::ALL).unwrap();
+        uc.mem_map(0x2000_0000, 0x1000, Prot::ALL).unwrap();
+        uc.mem_write(4 * 16, &0x0000_1001u32.to_le_bytes()).unwrap();
+        uc.reg_write(RegisterARM::MSP, 0x2000_0100).unwrap();
+        uc.reg_write(RegisterARM::CONTROL, 0).unwrap();
+        uc.reg_write(RegisterARM::PC, 0x100).unwrap();
+
+        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let mut nvic = Nvic::default();
+        nvic.set_intr_pending(0);
+        // Simulate the CPU being mid-IT-block right now, without relying on
+        // note_fetched_instruction or any CPU-exposed register -- this is
+        // the tracked-by-hand state itself, which is exactly what proved
+        // unreliable to read back from XPSR live.
+        nvic.it_block_active_now = true;
+        nvic.run_pending_interrupts(&sys, 0x0000_0000);
+
+        // Dispatch must be deferred: PC untouched, not marked in-interrupt,
+        // and the interrupt is still queued for the next attempt.
+        assert_eq!(sys.uc.borrow_mut().reg_read(RegisterARM::PC).unwrap(), 0x100);
+        assert!(!nvic.in_interrupt);
+
+        // Once the block completes naturally, the still-pending interrupt
+        // dispatches normally.
+        nvic.it_block_active_now = false;
+        nvic.run_pending_interrupts(&sys, 0x0000_0000);
+        assert_eq!(sys.uc.borrow_mut().reg_read(RegisterARM::PC).unwrap(), 0x1000);
+        assert!(nvic.in_interrupt);
+    }
+
+    #[test]
+    fn note_fetched_instruction_tracks_it_block_span_from_raw_bytes() {
+        let (mut uc, p, d) = test_parts();
+        uc.mem_map(0x0000_0000, 0x1000, Prot::ALL).unwrap();
+
+        // "itt ne" at 0x10: cond=0x1 (ne), mask=0b0100 -> covers 2
+        // predicated instructions (4 - trailing_zeros(0b0100) = 4 - 2 = 2).
+        uc.mem_write(0x10, &0xbf14u16.to_le_bytes()).unwrap();
+
+        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let mut nvic = Nvic::default();
+        assert_eq!(nvic.it_block_remaining, 0);
+        assert!(!nvic.it_block_active_now);
+
+        // The IT instruction's own tick is (conservatively) active too.
+        nvic.note_fetched_instruction(&sys, 0x10);
+        assert_eq!(nvic.it_block_remaining, 2);
+        assert!(nvic.it_block_active_now);
+
+        // First predicated instruction: still active at ITS OWN tick (this
+        // is exactly the off-by-one that made the very first fix ineffective
+        // live -- the last predicated instruction of a block must read as
+        // active here, not only the ones strictly before it).
+        nvic.note_fetched_instruction(&sys, 0x12);
+        assert_eq!(nvic.it_block_remaining, 1);
+        assert!(nvic.it_block_active_now);
+
+        // Second (last) predicated instruction: also still active at its
+        // own tick.
+        nvic.note_fetched_instruction(&sys, 0x14);
+        assert_eq!(nvic.it_block_remaining, 0);
+        assert!(nvic.it_block_active_now);
+
+        // Only the instruction *after* the whole block is finally safe.
+        nvic.note_fetched_instruction(&sys, 0x16);
+        assert_eq!(nvic.it_block_remaining, 0);
+        assert!(!nvic.it_block_active_now);
     }
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::{cell::RefCell, collections::{BTreeMap, VecDeque}, rc::Rc};
+use std::{cell::RefCell, collections::{BTreeMap, VecDeque}, rc::Rc, sync::atomic::Ordering};
 
 use crate::{ext_devices::{usb_cdc_tcp::UsbCdcTcp, ExtDevices}, system::System};
 
@@ -45,6 +45,7 @@ pub struct OtgFs {
     bulk_in_endpoint: Option<usize>,
     bulk_out_endpoint: Option<usize>,
     pending_bridge_writes: Vec<u8>,
+    last_sof_instruction: u64,
 }
 
 impl OtgFs {
@@ -114,6 +115,18 @@ impl OtgFs {
 
     const VIRTUAL_DEVICE_ADDRESS: u8 = 5;
 
+    // Real hardware emits SOF once per real millisecond; asserting it on
+    // literally every polled instruction (as this model previously did)
+    // means every single instruction is also a fresh attempt to dispatch
+    // the OTG_FS interrupt, which -- combined with a rare CPU-emulation
+    // timing edge case around interrupt entry near IT blocks -- turned a
+    // theoretical race into one that live TunerStudio traffic reliably hit
+    // within seconds. Throttling to a fixed instruction-count period (still
+    // far more frequent than the driver's own flush needs) cuts the number
+    // of dispatch attempts by orders of magnitude without making the
+    // firmware-visible SOF cadence perceptibly less responsive.
+    const SOF_PERIOD_INSTRUCTIONS: u64 = 1000;
+
     pub fn new(name: &str, ext_devices: &ExtDevices) -> Option<Box<dyn Peripheral>> {
         if name == "OTG_FS_GLOBAL" {
             Some(Box::new(Self {
@@ -144,6 +157,7 @@ impl OtgFs {
                 bulk_in_endpoint: Some(2),
                 bulk_out_endpoint: Some(2),
                 pending_bridge_writes: Vec::new(),
+                last_sof_instruction: 0,
             }))
         } else {
             None
@@ -172,6 +186,7 @@ impl OtgFs {
             bulk_in_endpoint: None,
             bulk_out_endpoint: None,
             pending_bridge_writes: Vec::new(),
+            last_sof_instruction: 0,
         }
     }
 
@@ -614,8 +629,16 @@ impl Peripheral for OtgFs {
             // buffer (sduSOFHookI -> obqTryFlushI), since TsChannelBase's
             // USB channel doesn't override flush(). Without it, any
             // response shorter than the USB buffer size sits in the queue
-            // forever and is never transmitted.
-            self.set_global_interrupt_status(Self::GINTSTS_SOF);
+            // forever and is never transmitted. Asserting it on literally
+            // every polled instruction (rather than at some reasonable
+            // interval) needlessly maximizes how often an interrupt
+            // dispatch is even attempted; throttle it the same
+            // instruction-count-based way SysTick already is.
+            let n = crate::emulator::NUM_INSTRUCTIONS.load(Ordering::Relaxed);
+            if n.wrapping_sub(self.last_sof_instruction) >= Self::SOF_PERIOD_INSTRUCTIONS {
+                self.last_sof_instruction = n;
+                self.set_global_interrupt_status(Self::GINTSTS_SOF);
+            }
         }
 
         if self.is_configured() {
@@ -715,7 +738,7 @@ mod tests {
 
     #[test]
     fn sof_bit_raises_masked_interrupt_and_clears_on_write_one() {
-        // poll() sets GINTSTS.SOF once per tick while a virtual host is
+        // poll() sets GINTSTS.SOF periodically while a virtual host is
         // attached, mirroring the continuous 1ms SOF cadence of a real USB
         // bus. ChibiOS's serial-over-USB driver enables GINTMSK.SOFM and
         // never disables it (usbcfg.cpp registers a sof_cb), relying on it
