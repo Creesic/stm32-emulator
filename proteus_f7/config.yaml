@@ -26,6 +26,16 @@ regions:
   - name: SRAM2
     start: 0x2007c000
     size: 0x4000
+patches:
+  # STM32F767's flash-size ID register (FLASHSIZE_BASE, RM0410) -- firmware
+  # reads this at boot via TM_ID_GetFlashSize() and refuses to continue if
+  # it reports less than 1024K. It lives in the otherwise-blank
+  # System-identifiers region above, which has no real flash content, so it
+  # always read back 0 and firmware halted with "expected at least 1024K
+  # of flash". Two little-endian bytes: 2048 (0x0800) KB, matching this
+  # config's 0x200000-byte (2MB) ROM regions.
+  - start: 0x1ff0f442
+    data: [0x00, 0x08]
 devices:
   usb_cdc_tcp:
     - peripheral: OTG_FS_GLOBAL

@@ -94,6 +94,12 @@ pub struct MemoryRegion {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct MemoryPatch {
+    pub start: u32,
+    pub data: &'static [u8],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct UsbCdcTcpDevice {
     pub peripheral: &'static str,
     pub listen: &'static str,
@@ -128,6 +134,7 @@ pub struct ResolvedProfile {
     pub firmware: PathBuf,
     pub svd: PathBuf,
     pub regions: Vec<MemoryRegion>,
+    pub patches: Vec<MemoryPatch>,
     pub usb_cdc_tcp: Option<UsbCdcTcpDevice>,
     pub ecu_io: Option<EcuIoDevice>,
 }
@@ -149,6 +156,7 @@ impl ResolvedProfile {
             firmware,
             svd,
             regions: template.regions.to_vec(),
+            patches: template.patches.to_vec(),
             usb_cdc_tcp: template.usb_cdc_tcp,
             ecu_io: template.ecu_io,
         })
@@ -184,6 +192,7 @@ impl ResolvedProfile {
                     load_firmware: false,
                 },
             ],
+            patches: Vec::new(),
             usb_cdc_tcp: None,
             ecu_io: None,
         }
@@ -217,6 +226,7 @@ impl ResolvedProfile {
                         .then(|| self.firmware.to_string_lossy()),
                 })
                 .collect(),
+            patches: self.patches.clone(),
             devices,
         })
     }
@@ -247,6 +257,7 @@ struct ProfileTemplate {
     cpu_model: LauncherCpuModel,
     vector_table: u32,
     regions: &'static [MemoryRegion],
+    patches: &'static [MemoryPatch],
     usb_cdc_tcp: Option<UsbCdcTcpDevice>,
     ecu_io: Option<EcuIoDevice>,
 }
@@ -296,6 +307,17 @@ const PROTEUS_F7_REGIONS: [MemoryRegion; 7] = [
     },
 ];
 
+const PROTEUS_F7_PATCHES: [MemoryPatch; 1] = [
+    // STM32F767's flash-size ID register (FLASHSIZE_BASE, RM0410) --
+    // firmware reads this at boot via TM_ID_GetFlashSize() and refuses to
+    // continue if it reports less than 1024K. It lives in the
+    // otherwise-blank System-identifiers region above, which has no real
+    // flash content, so it always read back 0 and firmware halted with
+    // "expected at least 1024K of flash". Two little-endian bytes: 2048
+    // (0x0800) KB, matching this profile's 0x200000-byte (2MB) ROM regions.
+    MemoryPatch { start: 0x1ff0_f442, data: &[0x00, 0x08] },
+];
+
 const PROTEUS_F7_ECU_IO_PINS: [EcuIoPin; 4] = [
     EcuIoPin { name: "crank", pin: "PC6", direction: "input" },
     EcuIoPin { name: "cam", pin: "PE11", direction: "input" },
@@ -315,6 +337,7 @@ const PROTEUS_F7_PROFILE: ProfileTemplate = ProfileTemplate {
     cpu_model: LauncherCpuModel::CortexM7,
     vector_table: 0x0020_0000,
     regions: &PROTEUS_F7_REGIONS,
+    patches: &PROTEUS_F7_PATCHES,
     usb_cdc_tcp: Some(UsbCdcTcpDevice {
         peripheral: "OTG_FS_GLOBAL",
         listen: "127.0.0.1:29000",
@@ -331,6 +354,8 @@ const PROTEUS_F7_PROFILE: ProfileTemplate = ProfileTemplate {
 struct YamlConfig<'a> {
     cpu: YamlCpu<'a>,
     regions: Vec<YamlRegion<'a>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    patches: Vec<MemoryPatch>,
     #[serde(skip_serializing_if = "Option::is_none")]
     devices: Option<YamlDevices>,
 }

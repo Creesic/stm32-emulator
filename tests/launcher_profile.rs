@@ -116,3 +116,37 @@ fn manual_profile_yaml_uses_the_selected_cpu_model() {
 
     assert!(profile.to_yaml().unwrap().contains("model: cortex-m4"));
 }
+
+#[test]
+fn proteus_f7_yaml_includes_the_flash_size_patch() {
+    // Firmware reads its own flash size back from a fixed ROM address
+    // (FLASHSIZE_BASE) at boot and refuses to continue if it reads as 0,
+    // which it always would inside the otherwise-blank System-identifiers
+    // region without this patch.
+    let profile = ResolvedProfile::for_variant(
+        KnownVariant::proteus_f7(),
+        PathBuf::from("rusefi.bin"),
+        PathBuf::from("STM32F767.svd"),
+    )
+    .unwrap();
+
+    let yaml = profile.to_yaml().unwrap();
+    assert!(yaml.contains("patches"));
+    assert!(yaml.contains("start: 535884866")); // 0x1ff0f442
+}
+
+#[test]
+fn manual_profile_yaml_has_no_patches_section() {
+    let profile = ResolvedProfile::manual(
+        LauncherCpuModel::CortexM4,
+        PathBuf::from("firmware.bin"),
+        PathBuf::from("chip.svd"),
+        0x0800_0000,
+        0x0800_0000,
+        0x0010_0000,
+        0x2000_0000,
+        0x0002_0000,
+    );
+
+    assert!(!profile.to_yaml().unwrap().contains("patches"));
+}
