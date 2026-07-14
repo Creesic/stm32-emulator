@@ -7,7 +7,6 @@ use unicorn_engine::{RegisterARM, Unicorn};
 use super::Peripheral;
 use crate::system::System;
 
-#[derive(Default)]
 pub struct Nvic {
     pub systick_period: Option<u32>,
     pub last_systick_trigger: u64,
@@ -31,6 +30,27 @@ pub struct Nvic {
     // block is correctly still seen as blocked at its own tick rather than
     // reading the post-decrement (already-zero) value.
     it_block_active_now: bool,
+    // NVIC_IPR0..NVIC_IPR239, one priority byte per external IRQ. Real
+    // register storage (unlike every other NVIC register, which this
+    // peripheral treats as a no-op stub): rusEFI's assertInterruptPriority()
+    // reads back the priority it configured via nvicEnableVector() and
+    // firmwareErrors if it doesn't match, so this one has to actually
+    // round-trip.
+    priorities: [u8; Nvic::IPR_COUNT],
+}
+
+impl Default for Nvic {
+    fn default() -> Self {
+        Self {
+            systick_period: None,
+            last_systick_trigger: 0,
+            pending: 0,
+            in_interrupt: false,
+            it_block_remaining: 0,
+            it_block_active_now: false,
+            priorities: [0; Nvic::IPR_COUNT],
+        }
+    }
 }
 
 const IRQ_OFFSET: i32 = 16;
@@ -52,6 +72,23 @@ pub mod irq {
 // the saturn firmware to work just well enough.
 
 impl Nvic {
+    // NVIC_IPR0 sits at this byte offset from the NVIC's base (0xE000E000),
+    // holding one priority byte per external IRQ up to the architectural
+    // max of 240.
+    const IPR_OFFSET: u32 = 0x400;
+    const IPR_COUNT: usize = 240;
+
+    // Peripherals::write/read always hand peripherals a 4-byte-aligned
+    // offset (sub-word accesses are merged/split at that layer), so a hit
+    // here always covers 4 whole, in-bounds priority bytes.
+    fn ipr_word_base(offset: u32) -> Option<usize> {
+        if (Self::IPR_OFFSET..Self::IPR_OFFSET + Self::IPR_COUNT as u32).contains(&offset) {
+            Some((offset - Self::IPR_OFFSET) as usize)
+        } else {
+            None
+        }
+    }
+
     pub fn set_intr_pending(&mut self, irq: i32) {
         trace!("Set irq pending irq={}", irq);
         let bit = IRQ_OFFSET + irq;
@@ -385,11 +422,23 @@ impl Nvic {
 }
 
 impl Peripheral for Nvic {
-    fn read(&mut self, _sys: &System, _offset: u32) -> u32 {
+    fn read(&mut self, _sys: &System, offset: u32) -> u32 {
+        if let Some(base) = Self::ipr_word_base(offset) {
+            return u32::from_le_bytes([
+                self.priorities[base],
+                self.priorities[base + 1],
+                self.priorities[base + 2],
+                self.priorities[base + 3],
+            ]);
+        }
         0
     }
 
-    fn write(&mut self, _sys: &System, _offset: u32, _value: u32) {}
+    fn write(&mut self, _sys: &System, offset: u32, value: u32) {
+        if let Some(base) = Self::ipr_word_base(offset) {
+            self.priorities[base..base + 4].copy_from_slice(&value.to_le_bytes());
+        }
+    }
 }
 
 /// The next part is glue. Maybe we could have a better architecture.
@@ -468,7 +517,7 @@ mod tests {
         ArmCpuModel, RegisterARM, Unicorn,
     };
 
-    use super::{Nvic, XPSR_ITSTATE_MASK};
+    use super::{Nvic, Peripheral, XPSR_ITSTATE_MASK};
     use crate::{ext_devices::ExtDevices, peripherals::Peripherals, system::System};
 
     fn test_parts() -> (Unicorn<'static, ()>, Rc<Peripherals>, Rc<ExtDevices>) {
@@ -570,5 +619,42 @@ mod tests {
         nvic.note_fetched_instruction(&sys, 0x16);
         assert_eq!(nvic.it_block_remaining, 0);
         assert!(!nvic.it_block_active_now);
+    }
+
+    #[test]
+    fn ipr_register_round_trips_a_priority_byte_written_for_one_irq() {
+        // rusEFI's assertInterruptPriority() reads back NVIC->IP[irq] after
+        // configuring it via nvicEnableVector() and firmwareErrors if it
+        // doesn't match what it wrote -- unlike every other NVIC register
+        // here, this one has to actually hold state.
+        let (mut uc, p, d) = test_parts();
+        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let mut nvic = Nvic::default();
+
+        // IPR12 (offset 0x430) packs the priority bytes for IRQ 48-51; TIM5
+        // is IRQ 50, the third byte. Peripherals::write always hands
+        // peripherals a 4-byte-aligned offset with sub-word writes already
+        // merged into the full word, so this is what Nvic::write actually
+        // receives when firmware writes just IRQ 50's byte.
+        let word = u32::from_le_bytes([0x00, 0x00, 0x40, 0x00]);
+        nvic.write(&sys, 0x430, word);
+
+        assert_eq!(nvic.read(&sys, 0x430), word);
+    }
+
+    #[test]
+    fn other_nvic_registers_remain_a_no_op_stub() {
+        // Only IPR needs real storage for the firmware paths this emulator
+        // has been made to support so far; every other NVIC register (ISER
+        // at offset 0, in this case) is untouched deliberately-stubbed
+        // behavior and must keep reading back 0 regardless of what's
+        // written.
+        let (mut uc, p, d) = test_parts();
+        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let mut nvic = Nvic::default();
+
+        nvic.write(&sys, 0x0000, 0xffff_ffff);
+
+        assert_eq!(nvic.read(&sys, 0x0000), 0);
     }
 }
