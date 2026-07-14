@@ -106,6 +106,27 @@ pub struct UsbCdcTcpDevice {
     pub max_buffered_bytes: usize,
 }
 
+/// Owned counterpart of `UsbCdcTcpDevice`, used once a profile is resolved:
+/// unlike the compile-time template (whose `listen` is a fixed `&'static
+/// str`), the launcher lets the user edit this port at runtime, so it needs
+/// to hold an owned string rather than a `const`-friendly static one.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ResolvedUsbCdcTcp {
+    pub peripheral: &'static str,
+    pub listen: String,
+    pub max_buffered_bytes: usize,
+}
+
+impl From<UsbCdcTcpDevice> for ResolvedUsbCdcTcp {
+    fn from(device: UsbCdcTcpDevice) -> Self {
+        Self {
+            peripheral: device.peripheral,
+            listen: device.listen.to_owned(),
+            max_buffered_bytes: device.max_buffered_bytes,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct EcuIoPin {
     pub name: &'static str,
@@ -135,7 +156,7 @@ pub struct ResolvedProfile {
     pub svd: PathBuf,
     pub regions: Vec<MemoryRegion>,
     pub patches: Vec<MemoryPatch>,
-    pub usb_cdc_tcp: Option<UsbCdcTcpDevice>,
+    pub usb_cdc_tcp: Option<ResolvedUsbCdcTcp>,
     pub ecu_io: Option<EcuIoDevice>,
 }
 
@@ -157,9 +178,29 @@ impl ResolvedProfile {
             svd,
             regions: template.regions.to_vec(),
             patches: template.patches.to_vec(),
-            usb_cdc_tcp: template.usb_cdc_tcp,
+            usb_cdc_tcp: template.usb_cdc_tcp.map(ResolvedUsbCdcTcp::from),
             ecu_io: template.ecu_io,
         })
+    }
+
+    /// The port currently configured for the USB CDC TCP bridge (e.g. what
+    /// TunerStudio connects to), if this profile has one at all.
+    pub fn usb_cdc_tcp_port(&self) -> Option<u16> {
+        self.usb_cdc_tcp
+            .as_ref()?
+            .listen
+            .rsplit(':')
+            .next()?
+            .parse()
+            .ok()
+    }
+
+    /// Overrides the USB CDC TCP bridge's listen port (host stays
+    /// 127.0.0.1). No-op if this profile has no USB CDC TCP device.
+    pub fn set_usb_cdc_tcp_port(&mut self, port: u16) {
+        if let Some(device) = &mut self.usb_cdc_tcp {
+            device.listen = format!("127.0.0.1:{port}");
+        }
     }
 
     pub fn manual(
@@ -201,7 +242,7 @@ impl ResolvedProfile {
     pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
         let devices = if self.usb_cdc_tcp.is_some() || self.ecu_io.is_some() {
             Some(YamlDevices {
-                usb_cdc_tcp: self.usb_cdc_tcp.iter().copied().collect(),
+                usb_cdc_tcp: self.usb_cdc_tcp.iter().cloned().collect(),
                 ecu_io: self.ecu_io.iter().copied().collect(),
             })
         } else {
@@ -363,7 +404,7 @@ struct YamlConfig<'a> {
 #[derive(Serialize)]
 struct YamlDevices {
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    usb_cdc_tcp: Vec<UsbCdcTcpDevice>,
+    usb_cdc_tcp: Vec<ResolvedUsbCdcTcp>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     ecu_io: Vec<EcuIoDevice>,
 }

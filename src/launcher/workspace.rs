@@ -28,6 +28,12 @@ pub struct SavedLauncherState {
     pub manual_flash_size: String,
     pub manual_ram_start: String,
     pub manual_ram_size: String,
+    // #[serde(default)] so workspace.yaml files saved before this field
+    // existed still deserialize (a missing required field would otherwise
+    // fail the whole struct and silently reset all saved state, per
+    // WorkspaceStore::load()'s unwrap_or_default() fallback).
+    #[serde(default)]
+    pub usb_cdc_tcp_port: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]

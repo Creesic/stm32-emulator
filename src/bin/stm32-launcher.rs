@@ -45,6 +45,7 @@ struct App {
     variants: Vec<KnownVariant>,
     filter: String,
     manual: ManualForm,
+    usb_cdc_tcp_port: String,
     temporary_config: Option<TemporaryConfig>,
     process: Option<RunningEmulator>,
 }
@@ -71,6 +72,7 @@ impl App {
                 ram_start: if saved.manual_ram_start.is_empty() { "0x20000000".to_owned() } else { saved.manual_ram_start },
                 ram_size: if saved.manual_ram_size.is_empty() { "0x00020000".to_owned() } else { saved.manual_ram_size },
             },
+            usb_cdc_tcp_port: if saved.usb_cdc_tcp_port.is_empty() { "29000".to_owned() } else { saved.usb_cdc_tcp_port },
             temporary_config: None,
             process: None,
         }
@@ -91,6 +93,7 @@ impl App {
             manual_flash_size: self.manual.flash_size.clone(),
             manual_ram_start: self.manual.ram_start.clone(),
             manual_ram_size: self.manual.ram_size.clone(),
+            usb_cdc_tcp_port: self.usb_cdc_tcp_port.clone(),
         }
     }
 
@@ -154,7 +157,12 @@ impl App {
         if !svd.is_file() {
             return Err(format!("SVD file does not exist: {}", svd.display()));
         }
-        ResolvedProfile::for_variant(variant, firmware, svd).map_err(|error| error.to_string())
+        let mut profile = ResolvedProfile::for_variant(variant, firmware, svd)
+            .map_err(|error| error.to_string())?;
+        if profile.usb_cdc_tcp.is_some() {
+            profile.set_usb_cdc_tcp_port(parse_port(&self.usb_cdc_tcp_port)?);
+        }
+        Ok(profile)
     }
 
     fn can_run(&self) -> bool {
@@ -222,6 +230,13 @@ fn parse_address(input: &str, label: &str) -> Result<u32, String> {
         .map(|hex| u32::from_str_radix(hex, 16))
         .unwrap_or_else(|| value.parse());
     parsed.map_err(|_| format!("Manual {label} must be decimal or hexadecimal (0x...)."))
+}
+
+fn parse_port(input: &str) -> Result<u16, String> {
+    input
+        .trim()
+        .parse()
+        .map_err(|_| "USB CDC TCP port must be a number from 1-65535.".to_owned())
 }
 
 fn window_attributes(
@@ -502,6 +517,9 @@ fn draw_configuration_panel(ui: &Ui, app: &mut App) {
                 }
                 ui.same_line();
                 ui.text_disabled(display_path(app.state.svd.as_deref()));
+
+                ui.input_text("USB CDC TCP port", &mut app.usb_cdc_tcp_port)
+                    .build();
             }
 
             ui.separator();

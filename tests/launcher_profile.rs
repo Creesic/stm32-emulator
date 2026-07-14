@@ -150,3 +150,51 @@ fn manual_profile_yaml_has_no_patches_section() {
 
     assert!(!profile.to_yaml().unwrap().contains("patches"));
 }
+
+#[test]
+fn usb_cdc_tcp_port_defaults_to_the_profiles_template_value() {
+    let profile = ResolvedProfile::for_variant(
+        KnownVariant::proteus_f7(),
+        PathBuf::from("rusefi.bin"),
+        PathBuf::from("STM32F767.svd"),
+    )
+    .unwrap();
+
+    assert_eq!(profile.usb_cdc_tcp_port(), Some(29000));
+}
+
+#[test]
+fn setting_the_usb_cdc_tcp_port_changes_the_generated_yaml() {
+    let mut profile = ResolvedProfile::for_variant(
+        KnownVariant::proteus_f7(),
+        PathBuf::from("rusefi.bin"),
+        PathBuf::from("STM32F767.svd"),
+    )
+    .unwrap();
+
+    profile.set_usb_cdc_tcp_port(40123);
+
+    assert_eq!(profile.usb_cdc_tcp_port(), Some(40123));
+    let yaml = profile.to_yaml().unwrap();
+    assert!(yaml.contains("127.0.0.1:40123"));
+    assert!(!yaml.contains("127.0.0.1:29000"));
+}
+
+#[test]
+fn setting_the_usb_cdc_tcp_port_on_a_manual_profile_is_a_harmless_no_op() {
+    // Manual profiles never have a usb_cdc_tcp device at all.
+    let mut profile = ResolvedProfile::manual(
+        LauncherCpuModel::CortexM4,
+        PathBuf::from("firmware.bin"),
+        PathBuf::from("chip.svd"),
+        0x0800_0000,
+        0x0800_0000,
+        0x0010_0000,
+        0x2000_0000,
+        0x0002_0000,
+    );
+
+    profile.set_usb_cdc_tcp_port(40123);
+
+    assert_eq!(profile.usb_cdc_tcp_port(), None);
+}
