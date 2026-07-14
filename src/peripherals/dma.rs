@@ -173,9 +173,14 @@ impl Stream {
             Dir::Invalid => (0, 0),
         };
 
-        if log::log_enabled!(log::Level::Debug) {
+        if log::log_enabled!(log::Level::Trace) {
+            // Firmware-driven peripherals like the slow-ADC sampling loop
+            // (500Hz+) re-arm a DMA transfer continuously once it's actually
+            // completing (see the transfer-complete interrupt fix) -- this
+            // fires far too often for the default -v/Debug level the
+            // launcher GUI always runs at.
             let peri_desc = sys.p.addr_desc(peri_addr);
-            debug!(
+            trace!(
                 "{} xfer initiated channel={} peri_{} dir={:?} addr=0x{:08x} size={}",
                 name,
                 self.channel(),
