@@ -78,9 +78,17 @@ impl UsbCdcTcp {
         loop {
             match self.listener.accept() {
                 Ok((client, address)) => {
+                    // A stale client (e.g. one that went silent without a
+                    // clean TCP close) would otherwise wedge this bridge
+                    // forever: rejecting every later connection attempt
+                    // with no way to recover short of restarting the whole
+                    // emulator. Only one physical USB host can ever be
+                    // attached at a time anyway, so a new connection is the
+                    // strongest signal we get that the old one is gone --
+                    // replace it instead of refusing the new one.
                     if self.client.is_some() {
-                        debug!("Rejecting additional USB CDC TCP client at {address}");
-                        continue;
+                        info!("Replacing stale USB CDC TCP client with new connection from {address}");
+                        self.mark_disconnected();
                     }
                     client
                         .set_nonblocking(true)
@@ -230,5 +238,48 @@ mod tests {
                 "unexpected error waiting for (no) data: {error:?}"
             ),
         }
+    }
+
+    #[test]
+    fn a_new_connection_replaces_a_stale_one_instead_of_being_rejected() {
+        // A client can go silent without ever completing a clean TCP
+        // close (observed live: a connection reset that never resolves
+        // to a readable error on this end, leaving it looking perfectly
+        // healthy). Rejecting every later connection attempt in that case
+        // wedges the bridge until the whole emulator is restarted -- only
+        // one physical USB host is ever attached at a time anyway, so a
+        // new connection should replace the old one, not be refused.
+        let mut bridge = UsbCdcTcp::new(test_config()).unwrap();
+        let addr = bridge.local_addr().unwrap();
+
+        let _stale_client = TcpStream::connect(addr).unwrap();
+        bridge.poll().unwrap();
+        assert!(bridge.is_client_connected());
+
+        // _stale_client is deliberately never dropped or disconnected --
+        // it just goes quiet, exactly like the wedged state this fix
+        // targets.
+        let mut new_client = TcpStream::connect(addr).unwrap();
+        new_client
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
+
+        for _ in 0..5 {
+            bridge.poll().unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(bridge.is_client_connected());
+
+        bridge.push_from_device(b"hello");
+        for _ in 0..5 {
+            bridge.poll().unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let mut buf = [0u8; 16];
+        let count = new_client
+            .read(&mut buf)
+            .expect("the new client must receive data bridged after replacing the stale one");
+        assert_eq!(&buf[..count], b"hello");
     }
 }
