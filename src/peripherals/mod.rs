@@ -154,6 +154,57 @@ mod tests {
         peripherals.register_core_peripherals();
         assert!(super::Peripherals::get_peripheral(&peripherals.peripherals, 0xe000_ed04).is_some());
     }
+
+    #[test]
+    fn sub_word_read_extracts_the_targeted_byte_not_the_whole_word_shifted_up() {
+        // Regression test for a shift-direction bug in Peripherals::read:
+        // a sub-word access at a non-zero byte offset shifted the
+        // peripheral's returned (full-word) value UP instead of down
+        // toward the low bits the caller (Unicorn's mmio read callback)
+        // expects. For a byte-array-style register spanning a whole word
+        // (like NVIC's IPR array, where firmware's NVIC->IP[50] reads a
+        // single byte at byte offset 2 within a packed word), this
+        // silently shifted the value out of the 32-bit range entirely,
+        // always reading back 0 no matter what was actually stored.
+        use std::{cell::RefCell, rc::Rc};
+
+        use unicorn_engine::{
+            unicorn_const::{Arch, Mode},
+            ArmCpuModel, Unicorn,
+        };
+
+        use crate::{ext_devices::ExtDevices, system::System};
+
+        let mut peripherals = super::Peripherals::default();
+        peripherals.register_core_peripherals();
+        let peripherals = Rc::new(peripherals);
+
+        let mut uc = Unicorn::new(Arch::ARM, Mode::THUMB | Mode::LITTLE_ENDIAN).unwrap();
+        uc.ctl_set_cpu_model(ArmCpuModel::CORTEX_M4 as i32).unwrap();
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p: peripherals.clone(),
+            d: Rc::new(ExtDevices::default()),
+        };
+
+        // IPR12 (0xE000E430) packs priority bytes for IRQ 48-51; write the
+        // whole word, then read back just IRQ 50's byte (offset 2) as a
+        // single-byte access, matching how firmware actually reads
+        // NVIC->IP[50].
+        peripherals.write(&sys, 0xe000_e430, 4, 0x0040_0000);
+        assert_eq!(peripherals.read(&sys, 0xe000_e432, 1), 0x40);
+    }
+
+    #[test]
+    fn core_nvic_model_covers_the_interrupt_priority_array() {
+        // Boards whose SVD omits "NVIC" entirely (e.g. STM32F767) would
+        // otherwise never route reads/writes to Nvic's IPR array at all --
+        // this is the boundary that actually matters to rusEFI's
+        // assertInterruptPriority(), not just "some address inside NVIC".
+        let mut peripherals = super::Peripherals::default();
+        peripherals.register_core_peripherals();
+        assert!(super::Peripherals::get_peripheral(&peripherals.peripherals, 0xe000_e400).is_some());
+    }
 }
 
 pub struct PeripheralSlot<T> {
@@ -242,6 +293,24 @@ impl Peripherals {
                 peripheral: RefCell::new(peripheral),
             });
         }
+        // Some SVDs (e.g. STM32F767, used by proteus_f7) don't declare an
+        // "NVIC" peripheral at all, so it never reaches register_peripheral's
+        // SVD-driven loop below and its registers -- notably IPR, which
+        // rusEFI's assertInterruptPriority() reads back -- were always
+        // silently no-op'd. Registered here starting at ISER0 (0xE000E100),
+        // not NVIC's nominal 0xE000E000 base, to avoid overlapping SysTick's
+        // 0xE000E010..0xE000E01C slot above (get_peripheral's binary search
+        // would otherwise silently drop any address past SysTick's own
+        // short range but still "inside" a wider NVIC block). Ends covering
+        // the IPR array (interrupt priority bytes, one per external IRQ up
+        // to the architectural max of 240) at 0xE000E4EF. Boards whose SVD
+        // does declare "NVIC" (e.g. saturn/monox's F407) still get it
+        // registered at its SVD-declared address via that loop instead.
+        self.peripherals.push(PeripheralSlot {
+            start: 0xe000_e100,
+            end: 0xe000_e4ef,
+            peripheral: RefCell::new(NvicWrapper::new_with_base_offset(0x100)),
+        });
         if let Some(peripheral) = Scb::new("SCB") {
             self.peripherals.push(PeripheralSlot {
                 start: 0xe000_ed00,
@@ -409,7 +478,13 @@ impl Peripherals {
         assert!(byte_offset + size <= 4);
 
         let value = if let Some(p) = Self::get_peripheral(&self.peripherals, addr) {
-            p.peripheral.borrow_mut().read(sys, addr - p.start) << (8 * byte_offset)
+            // The peripheral always returns its value as if for a full,
+            // aligned word; the caller (Unicorn's mmio read callback) wants
+            // the requested byte(s) in the low bits, so bring the target
+            // byte(s) down rather than up (mirrors the bitbanding case
+            // above, which does the same "shift the interesting bits down
+            // to position 0" for a single bit).
+            p.peripheral.borrow_mut().read(sys, addr - p.start) >> (8 * byte_offset)
         } else {
             0
         };

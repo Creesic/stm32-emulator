@@ -37,6 +37,12 @@ pub struct Nvic {
     // firmwareErrors if it doesn't match, so this one has to actually
     // round-trip.
     priorities: [u8; Nvic::IPR_COUNT],
+    // The exception number (IRQ_OFFSET + irq, or 0 in thread mode with
+    // nothing active) SCB's ICSR.VECTACTIVE field needs to report --
+    // Scb::read_icsr() has no other way to know which interrupt (if any)
+    // is currently running. This is deliberately independent of whatever
+    // the emulated CPU's own IPSR register holds.
+    active_exception_number: u32,
 }
 
 impl Default for Nvic {
@@ -49,6 +55,7 @@ impl Default for Nvic {
             it_block_remaining: 0,
             it_block_active_now: false,
             priorities: [0; Nvic::IPR_COUNT],
+            active_exception_number: 0,
         }
     }
 }
@@ -266,6 +273,19 @@ impl Nvic {
         uc.emu_stop().unwrap();
 
         self.in_interrupt = true;
+        self.active_exception_number = (IRQ_OFFSET + irq) as u32;
+    }
+
+    /// The exception number SCB's ICSR.VECTACTIVE field should currently
+    /// report (0 in thread mode, matching ARM's convention for "no
+    /// exception active").
+    pub fn active_exception_number(&self) -> u32 {
+        self.active_exception_number
+    }
+
+    #[cfg(test)]
+    pub fn set_active_exception_number_for_test(&mut self, value: u32) {
+        self.active_exception_number = value;
     }
 
     /// Enters the SVCall exception. Unlike peripheral IRQs, an `svc`
@@ -323,6 +343,7 @@ impl Nvic {
         uc.emu_stop().unwrap();
 
         self.in_interrupt = false;
+        self.active_exception_number = 0;
     }
 
     const CONTEXT_REGS_EXTENDED: [RegisterARM; 17] = [
@@ -443,25 +464,40 @@ impl Peripheral for Nvic {
 
 /// The next part is glue. Maybe we could have a better architecture.
 
-pub struct NvicWrapper;
+pub struct NvicWrapper {
+    // Nvic's own read/write use ARM's documented offsets from NVIC's
+    // nominal base, 0xE000E000 (e.g. IPR_OFFSET = 0x400). Wherever this
+    // wrapper is actually registered starting somewhere else -- see
+    // register_core_peripherals(), which starts it at 0xE000E100 to dodge
+    // SysTick's separately-owned 0xE000E010..0xE000E01C slot -- this
+    // re-bases incoming offsets back onto that 0xE000E000 convention.
+    base_offset: u32,
+}
 
 impl NvicWrapper {
     pub fn new(name: &str) -> Option<Box<dyn Peripheral>> {
         if name == "NVIC" {
-            Some(Box::new(Self))
+            Some(Box::new(Self { base_offset: 0 }))
         } else {
             None
         }
+    }
+
+    pub fn new_with_base_offset(base_offset: u32) -> Box<dyn Peripheral> {
+        Box::new(Self { base_offset })
     }
 }
 
 impl Peripheral for NvicWrapper {
     fn read(&mut self, sys: &System, offset: u32) -> u32 {
-        sys.p.nvic.borrow_mut().read(sys, offset)
+        sys.p.nvic.borrow_mut().read(sys, offset + self.base_offset)
     }
 
     fn write(&mut self, sys: &System, offset: u32, value: u32) {
-        sys.p.nvic.borrow_mut().write(sys, offset, value)
+        sys.p
+            .nvic
+            .borrow_mut()
+            .write(sys, offset + self.base_offset, value)
     }
 }
 

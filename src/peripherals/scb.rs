@@ -31,15 +31,20 @@ impl Scb {
         self.cpacr
     }
 
-    fn read_icsr(&self) -> u32 {
-        Self::ICSR_RETTOBASE
+    fn read_icsr(&self, sys: &System) -> u32 {
+        // VECTACTIVE, bits [8:0]: the exception number currently running
+        // (0 in thread mode). rusEFI's assertInterruptPriority() derives
+        // the IRQ whose NVIC_IPRn it should check from this field, via
+        // Nvic -- the same struct that actually tracks which interrupt is
+        // active, since nothing else here does.
+        Self::ICSR_RETTOBASE | sys.p.nvic.borrow().active_exception_number()
     }
 }
 
 impl Peripheral for Scb {
-    fn read(&mut self, _sys: &System, offset: u32) -> u32 {
+    fn read(&mut self, sys: &System, offset: u32) -> u32 {
         match offset {
-            0x0004 => self.read_icsr(),
+            0x0004 => self.read_icsr(sys),
             0x0088 => self.read_cpacr(),
             _ => 0,
         }
@@ -66,7 +71,21 @@ impl Peripheral for Scb {
 
 #[cfg(test)]
 mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use unicorn_engine::{
+        unicorn_const::{Arch, Mode},
+        ArmCpuModel, Unicorn,
+    };
+
     use super::Scb;
+    use crate::{ext_devices::ExtDevices, peripherals::Peripherals, system::System};
+
+    fn test_parts() -> (Unicorn<'static, ()>, Rc<Peripherals>, Rc<ExtDevices>) {
+        let mut uc = Unicorn::new(Arch::ARM, Mode::THUMB | Mode::LITTLE_ENDIAN).unwrap();
+        uc.ctl_set_cpu_model(ArmCpuModel::CORTEX_M4 as i32).unwrap();
+        (uc, Rc::new(Peripherals::default()), Rc::new(ExtDevices::default()))
+    }
 
     #[test]
     fn cpacr_retains_the_firmware_fpu_enable_value() {
@@ -78,7 +97,27 @@ mod tests {
 
     #[test]
     fn icsr_read_reports_rettobase_since_nested_interrupts_are_unsupported() {
+        let (mut uc, p, d) = test_parts();
+        let sys = System { uc: RefCell::new(&mut uc), p, d };
         let scb = Scb::default();
-        assert_eq!(scb.read_icsr() & Scb::ICSR_RETTOBASE, Scb::ICSR_RETTOBASE);
+        assert_eq!(scb.read_icsr(&sys) & Scb::ICSR_RETTOBASE, Scb::ICSR_RETTOBASE);
+    }
+
+    #[test]
+    fn icsr_read_reports_vectactive_from_nvics_currently_running_exception() {
+        // rusEFI's assertInterruptPriority() derives which NVIC_IPRn to
+        // check from ICSR.VECTACTIVE; without this, it always read back
+        // "thread mode" (0) regardless of which interrupt was actually
+        // running, silently checking the wrong (always-zero) priority byte.
+        let (mut uc, p, d) = test_parts();
+        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let scb = Scb::default();
+
+        assert_eq!(sys.p.nvic.borrow().active_exception_number(), 0);
+        assert_eq!(scb.read_icsr(&sys) & 0x1ff, 0);
+
+        // TIM5's exception number is IRQ_OFFSET (16) + 50 = 66.
+        sys.p.nvic.borrow_mut().set_active_exception_number_for_test(66);
+        assert_eq!(scb.read_icsr(&sys) & 0x1ff, 66);
     }
 }
