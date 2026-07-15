@@ -27,8 +27,10 @@ foreach ($line in @(
     'name: din1',
     'name: ls16',
     'name: ign12',
+    'name: hs4',
     'name: av11',
-    'name: vbatt'
+    'name: vbatt',
+    'name: vr1'
 )) {
     if (-not $config.Contains($line)) {
         throw "Configuration contract is missing: $line"

@@ -6,10 +6,12 @@
 
 ## User Preferences
 
+- More boards than the Proteus F7 are planned: keep board-specific data (harness pin maps, launcher profile templates) modular -- one module/file per board, not inlined into shared files. (2026-07-15)
 <!-- How the user likes things done. Code style, tools, patterns, communication. -->
 
 ## Key Learnings
 
+- **DMA instant transfer-complete starves rusEFI threads:** dma.rs pends the stream TC IRQ the moment firmware enables a stream. With EFI_INTERNAL_SLOW_ADC_BACKGROUND=TRUE, slowAdcEndCB restarts the next conversion from inside the ISR, so IRQ60 re-pends before exception return and tail-chains forever -- thread mode never runs, slowAdcConversionCount stays 0, boot never reaches usbStart. FIXED 2026-07-15: dma.rs now schedules complete_at deadlines (10k instructions) resolved in Dma::poll(); data still transfers immediately on arm, only the TCIF flag/IRQ is delayed. Any future instantly-completing peripheral interrupt risks the same starvation pattern.
 - **Proteus F7 boot and idle:** A 4 KiB system-ID page at 0x1FF0F000 is required for the image to pass its UID reads. Normal Unicorn returns expose even PCs; always re-enter Cortex-M through the Thumb-bit address. The image then reaches its WFI idle loop without an instruction error.
 - **Proteus F7 transport evidence:** The observed image does not access either OTG-FS or OTG-HS during full boot. Its matching board.mk enables USART2/K-line serial but no USB/OTG definitions, so a USB CDC TCP endpoint would not be firmware-backed for this image.
 - **Correction, 2026-07-10:** The user confirms the current Proteus F7 binary is USB-enabled. Treat the absence of live OTG traffic before a virtual host attach as insufficient to infer USB is disabled; model the virtual USB host/TCP attach path first.

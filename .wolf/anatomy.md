@@ -1,7 +1,11 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-07-15T15:35:47.722Z
-> Files: 122 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-15T16:23:19.038Z
+> Files: 123 tracked | Anatomy hits: 0 | Misses: 0
+
+## ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/2ddd4150-2756-4300-8896-52f47e9b74d4/scratchpad/
+
+- `feed_harness.py` (~98 tok)
 
 ## ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/
 
@@ -58,11 +62,11 @@
 ## .superpowers/sdd/
 
 - `final-review-fixes-report.md` — Final Review Fixes Report — Proteus F7 ECU I/O (6 Minor Findings) (~2590 tok)
-- `task-1-report.md` — Task 1 Report: EcuIo Core — TCP Bridge and name=value Protocol (~1359 tok)
-- `task-2-report.md` — Task 2 Report: Wire `EcuIo` into GPIO and `ExtDevices` (~2075 tok)
-- `task-3-report.md` — Task 3 Report: `Adc` peripheral (ADC1 only) (~2176 tok)
-- `task-4-report.md` — Task 4 Report: Model EXTI/SYSCFG so crank/cam edges actually reach firmware (~2533 tok)
-- `task-5-report.md` — Task 5 Report: Configure Proteus F7 and verify live (~2854 tok)
+- `task-1-report.md` — Task 1 Report: Move Proteus F7 board data into launcher boards module (~1095 tok)
+- `task-2-report.md` — Task 2 Report: Grow launcher tables to full harness map (TDD) (~1183 tok)
+- `task-3-report.md` — Task 3 Report: Full Proteus F7 Harness in config.yaml (~945 tok)
+- `task-4-report.md` — Task 4 Report: Update `docs/proteus-f7-ecu-io.md` to the new harness signal naming (~1802 tok)
+- `task-5-report.md` — Task 5 Report: Live end-to-end verification of the full Proteus F7 harness I/O routing (~1779 tok)
 
 ## .wolf/
 
@@ -74,7 +78,7 @@
 
 ## docs/
 
-- `proteus-f7-ecu-io.md` — Proteus F7 ECU I/O (~1365 tok)
+- `proteus-f7-ecu-io.md` — Proteus F7 ECU I/O (~1725 tok)
 - `proteus-f7-usb.md` — Proteus F7 Virtual USB CDC (~1104 tok)
 
 ## docs/superpowers/plans/
@@ -102,12 +106,12 @@
 ## proteus_f7/
 
 - `boot-sequence-notes.md` — Proteus F7 boot-sequence trace evidence (~3758 tok)
-- `config.yaml` (~477 tok)
+- `config.yaml` (~1226 tok)
 - `epicefi_symbols.yaml` — TEMPORARY diagnostic config: identical to config.yaml but loads the (~321 tok)
 - `README.md` — Local asset setup and bounded trace commands (~90 tok)
 - `setup.ps1` — Copies firmware and extracts the exact F767 SVD from ST's archive (~190 tok)
 - `usb_trace_notes.md` — Proteus F7 OTG-FS trace evidence (~6445 tok)
-- `verify_boot.ps1` (~696 tok)
+- `verify_boot.ps1` (~724 tok)
 - `verify_fpu.ps1` — Bounded post-VDIV Cortex-M7 smoke test for local Proteus F767 assets (~430 tok)
 
 ## saturn/
@@ -130,7 +134,7 @@
 ## src/ext_devices/
 
 - `display.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1865 tok)
-- `ecu_io.rs` — Defensive cap on `recv_buffer`/`outgoing` growth against a stalled or malicious (~5473 tok)
+- `ecu_io.rs` — Defensive cap on `recv_buffer`/`outgoing` growth against a stalled or malicious (~5786 tok)
 - `lcd.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1257 tok)
 - `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1889 tok)
 - `spi_flash.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1135 tok)
@@ -155,7 +159,7 @@
 ## src/launcher/boards/
 
 - `mod.rs` — Per-board launcher profile data. One module per supported board: (~83 tok)
-- `proteus_f7.rs` — Proteus F7 (STM32F767) launcher profile: memory map, boot patches, (~804 tok)
+- `proteus_f7.rs` — Proteus F7 (STM32F767) launcher profile: memory map, boot patches, (~1750 tok)
 
 ## src/peripherals/
 
@@ -182,5 +186,5 @@
 
 ## tests/
 
-- `launcher_profile.rs` — [test] (~1544 tok)
+- `launcher_profile.rs` — Full Proteus harness pin table (name, pin, direction), copied from (~3335 tok)
 - `launcher_state.rs` — [test] (~282 tok)
