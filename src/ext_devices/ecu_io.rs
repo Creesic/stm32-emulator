@@ -2,7 +2,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     io::{ErrorKind, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     rc::Rc,
@@ -57,6 +57,11 @@ pub struct EcuIo {
     adc_channels: Vec<(Pin, String)>,
     digital_input_pins: Vec<(Pin, String)>,
     last_digital_levels: HashMap<String, bool>,
+    /// Every name configured as a pin (either direction) or ADC channel;
+    /// `set_value` uses this to reject typo'd/unconfigured feeder names
+    /// instead of storing them unbounded (see the design doc's "unknown
+    /// name ... logged and ignored" promise).
+    known_names: HashSet<String>,
 }
 
 impl EcuIo {
@@ -80,6 +85,13 @@ impl EcuIo {
             .map(|p| (Pin::from_str(&p.pin), p.name.clone()))
             .collect();
 
+        let known_names = config
+            .pins
+            .iter()
+            .map(|p| p.name.clone())
+            .chain(config.adc_channels.iter().map(|c| c.name.clone()))
+            .collect();
+
         Ok(Self {
             config,
             listener,
@@ -90,6 +102,7 @@ impl EcuIo {
             adc_channels,
             digital_input_pins,
             last_digital_levels: HashMap::new(),
+            known_names,
         })
     }
 
@@ -175,6 +188,10 @@ impl EcuIo {
     }
 
     pub(crate) fn set_value(&mut self, name: &str, value: i32) {
+        if !self.known_names.contains(name) {
+            warn!("ECU IO: unknown signal name {name:?}, ignoring");
+            return;
+        }
         self.values.insert(name.to_string(), value);
     }
 
@@ -346,6 +363,21 @@ mod tests {
         }
 
         assert_eq!(ecu_io.adc_millivolts(Pin::from_str("PC0")), 750);
+    }
+
+    #[test]
+    fn an_unknown_signal_name_is_logged_and_not_stored() {
+        let mut ecu_io = EcuIo::new(test_config()).unwrap();
+        let mut client = TcpStream::connect(ecu_io.local_addr().unwrap()).unwrap();
+        ecu_io.poll().unwrap();
+
+        client.write_all(b"av12=1500\n").unwrap();
+        for _ in 0..10 {
+            ecu_io.poll().unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(!ecu_io.values.contains_key("av12"));
     }
 
     #[test]
