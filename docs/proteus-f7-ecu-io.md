@@ -19,10 +19,10 @@ per message, `name=value`:
 - Digital input pins (`vr1`, `vr2`, `din1`–`din6`): `value` is `0` or `1`.
 - ADC channels (`at1`–`at4`, `av1`–`av11`, `vbatt`): `value` is
   millivolts, clamped to 0-3300 (VREF+).
-- Output pins (`ls1`–`ls16`, `hs1`–`hs4`, `ign1`–`ign12`): the emulator sends `name=value` lines
-  to the connected client whenever firmware drives that pin to a new
-  level. There is nothing to send for these — they are observed, not
-  driven.
+- Output pins (`ls1`–`ls16`, `hs1`–`hs4`, `ign1`–`ign12`): the
+  emulator sends `name=value` lines to the connected client whenever
+  firmware drives that pin to a new level. There is nothing to send
+  for these — they are observed, not driven.
 
 Only one client at a time, same rule as the USB CDC bridge
 (`docs/proteus-f7-usb.md`'s "One-client rule and disconnects").
@@ -57,9 +57,11 @@ TIM output model exists.
 
 ## Verification
 
-`.\proteus_f7\verify_boot.ps1` passes, including the new `ecu_io:`,
-`listen: 127.0.0.1:29002`, and `name: crank` assertions, and the
-existing one-instruction reset-vector smoke test.
+`.\proteus_f7\verify_boot.ps1` passes, including the `ecu_io:`,
+`listen: 127.0.0.1:29002` assertions and the harness-map sentinels
+(`name: din1`, `name: ls16`, `name: ign12`, `name: av11`,
+`name: vbatt`), and the existing one-instruction reset-vector smoke
+test.
 
 The TCP bridge itself is confirmed live: connecting a client to
 `127.0.0.1:29002` and sending `map=1500\n` then four `crank=1\n`/
