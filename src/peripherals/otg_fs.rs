@@ -46,6 +46,8 @@ pub struct OtgFs {
     bulk_out_endpoint: Option<usize>,
     pending_bridge_writes: Vec<u8>,
     last_sof_instruction: u64,
+    // --- temporary diagnostic instrumentation (remove after diagnosis) ---
+    last_enum_diag_instruction: u64,
 }
 
 impl OtgFs {
@@ -158,6 +160,7 @@ impl OtgFs {
                 bulk_out_endpoint: Some(2),
                 pending_bridge_writes: Vec::new(),
                 last_sof_instruction: 0,
+                last_enum_diag_instruction: 0,
             }))
         } else {
             None
@@ -187,6 +190,7 @@ impl OtgFs {
             bulk_out_endpoint: None,
             pending_bridge_writes: Vec::new(),
             last_sof_instruction: 0,
+            last_enum_diag_instruction: 0,
         }
     }
 
@@ -418,6 +422,7 @@ impl OtgFs {
     }
 
     fn advance_virtual_host(&mut self) {
+        let previous_step = self.virtual_host_step;
         self.virtual_host_step = match self.virtual_host_step {
             VirtualHostStep::AwaitingDeviceDescriptor => {
                 // GET_DESCRIPTOR is DEV2HOST (IN data stage) — unlike every
@@ -443,6 +448,12 @@ impl OtgFs {
             VirtualHostStep::AwaitingSetControlLineStateStatus => VirtualHostStep::Configured,
             VirtualHostStep::Configured => VirtualHostStep::Configured,
         };
+        if self.virtual_host_step != previous_step {
+            info!(
+                "[otg-instr] enum advanced: {previous_step:?} -> {:?}",
+                self.virtual_host_step
+            );
+        }
     }
 
     #[cfg(test)]
@@ -569,6 +580,7 @@ impl OtgFs {
                         && !was_active
                         && self.virtual_host_step == VirtualHostStep::AwaitingDeviceDescriptor
                     {
+                        info!("[otg-instr] firmware armed EP0 OUT (DOEPCTL={value:#010x}); injecting GET_DESCRIPTOR SETUP");
                         self.virtual_host_setup(0, Self::get_device_descriptor_packet());
                     }
                 }
@@ -580,7 +592,12 @@ impl OtgFs {
         }
         match offset {
             Self::GINTSTS => self.global_interrupt_status &= !value,
-            Self::GINTMSK => self.global_interrupt_mask = value,
+            Self::GINTMSK => {
+                if self.global_interrupt_mask == 0 && value != 0 {
+                    info!("[otg-instr] firmware enabled OTG interrupts (GINTMSK={value:#010x}) -- usbStart() reached!");
+                }
+                self.global_interrupt_mask = value;
+            }
             Self::GRSTCTL => {
                 self.registers
                     .insert(offset, value & !Self::GRSTCTL_SELF_CLEARING);
@@ -623,6 +640,21 @@ impl Peripheral for OtgFs {
     }
 
     fn poll(&mut self, sys: &System) {
+        // --- TEMPORARY: watch firmware's slowAdcConversionCount (0x2004ef5c)
+        // to tell whether the slow-ADC conversion counter advances (adcConvert
+        // returning MSG_OK) or is stuck (waitForSlowAdc spinning forever). ---
+        {
+            use std::sync::atomic::AtomicU32;
+            static LAST: AtomicU32 = AtomicU32::new(u32::MAX);
+            if let Ok(bytes) = sys.uc.borrow().mem_read_as_vec(0x2004_ef5c, 4) {
+                let v = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                if v != LAST.load(Ordering::Relaxed) {
+                    LAST.store(v, Ordering::Relaxed);
+                    info!("[adc-instr] slowAdcConversionCount = {v}");
+                }
+            }
+        }
+
         let connected = self
             .bridge
             .as_ref()
@@ -678,6 +710,30 @@ impl Peripheral for OtgFs {
 
         if self.interrupt_pending() {
             sys.p.nvic.borrow_mut().set_intr_pending(67);
+        }
+
+        // --- temporary diagnostic instrumentation (remove after diagnosis) ---
+        // If a host is attached but enumeration never reaches Configured, the
+        // bridge's received bytes are never drained (take_for_device is gated
+        // on is_configured) and firmware appears to "not respond". Dump the
+        // frozen handshake state periodically so we can see exactly where it
+        // stalls and whether the OTG interrupt is even pending/unmasked.
+        if self.host_attached && !self.is_configured() {
+            let n = crate::emulator::NUM_INSTRUCTIONS.load(Ordering::Relaxed);
+            if n.wrapping_sub(self.last_enum_diag_instruction) >= 2_000_000 {
+                self.last_enum_diag_instruction = n;
+                info!(
+                    "[otg-instr] enumeration incomplete: step={:?} ep0out.ctl={:#010x} ep0in.ctl={:#010x} ep0in.int={:#010x} rx_status={} gintsts={:#010x} gintmsk={:#010x} irq_pending={}",
+                    self.virtual_host_step,
+                    self.ep_out[0].ctl,
+                    self.ep_in[0].ctl,
+                    self.ep_in[0].int,
+                    self.rx_status.len(),
+                    self.effective_gintsts(),
+                    self.global_interrupt_mask,
+                    self.interrupt_pending(),
+                );
+            }
         }
     }
 }
