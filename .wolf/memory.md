@@ -713,3 +713,7 @@
 | 11:35 | Edited src/launcher/mod.rs | — | ~0 |
 | 11:35 | Edited src/launcher/boards/proteus_f7.rs | 4→4 lines | ~40 |
 | 11:36 | Moved Proteus F7 board data into launcher boards module (pure refactor) | src/launcher/boards/{mod,proteus_f7}.rs, src/launcher/mod.rs | Baseline + after: launcher_profile 12/12 pass, emulator 90/90 pass, 9 pre-existing warnings | ~2800 |
+| 11:38 | Edited .superpowers/sdd/task-1-report.md | reduced (-29 lines) | ~1168 |
+| 11:41 | Edited tests/launcher_profile.rs | modified proteus_f7_yaml_includes_the_usb_cdc_tcp_and_ecu_io_devices() | ~408 |
+| 11:42 | Edited src/launcher/boards/proteus_f7.rs | expanded (+62 lines) | ~1106 |
+| 11:42 | Task 2 TDD: 8→40 pins, 5→16 ADC channels; all 12 launcher_profile + 90 emulator + 3 launcher_state + 2 launcher_workspace tests pass | tests/launcher_profile.rs, src/launcher/boards/proteus_f7.rs | Full harness map in tables ready for YAML gen | ~1500 |

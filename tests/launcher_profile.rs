@@ -81,8 +81,26 @@ fn proteus_f7_yaml_includes_the_usb_cdc_tcp_and_ecu_io_devices() {
     assert!(yaml.contains("max_buffered_bytes: 65536"));
     assert!(yaml.contains("ecu_io"));
     assert!(yaml.contains("127.0.0.1:29002"));
-    assert!(yaml.contains("name: crank"));
-    assert!(yaml.contains("direction: input"));
+
+    // The full Proteus harness map: 8 digital inputs, 32 observed
+    // outputs, 16 ADC channels (see
+    // docs/superpowers/specs/2026-07-15-proteus-harness-io-design.md).
+    assert_eq!(yaml.matches("direction: input").count(), 8);
+    assert_eq!(yaml.matches("direction: output").count(), 32);
+    assert_eq!(yaml.matches("name: av").count(), 11);
+    assert_eq!(yaml.matches("name: at").count(), 4);
+    assert!(yaml.contains("name: vbatt"));
+
+    // Spot-check group boundaries against proteus_meta.h.
+    assert!(yaml.contains("name: ls16"));
+    assert!(yaml.contains("name: ign12"));
+    assert!(yaml.contains("name: hs4"));
+    assert!(yaml.contains("name: din6"));
+    assert!(yaml.contains("name: vr1"));
+    assert!(yaml.contains("pin: PE15")); // din6
+    assert!(yaml.contains("pin: PG2")); // ign12
+    assert!(!yaml.contains("name: crank")); // old functional names are gone
+    assert!(!yaml.contains("name: map"));
 }
 
 #[test]
