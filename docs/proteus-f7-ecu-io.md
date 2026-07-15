@@ -59,9 +59,9 @@ TIM output model exists.
 
 `.\proteus_f7\verify_boot.ps1` passes, including the `ecu_io:`,
 `listen: 127.0.0.1:29002` assertions and the harness-map sentinels
-(`name: din1`, `name: ls16`, `name: ign12`, `name: av11`,
-`name: vbatt`), and the existing one-instruction reset-vector smoke
-test.
+(`name: din1`, `name: ls16`, `name: ign12`, `name: hs4`, `name: vr1`,
+`name: av11`, `name: vbatt`), and the existing one-instruction
+reset-vector smoke test.
 
 **Historical capture (pre-2026-07-15, pre-rename):** connecting a client to
 `127.0.0.1:29002` and sending `map=1500\n` then four `crank=1\n`/
