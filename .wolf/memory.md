@@ -731,3 +731,11 @@
 | 11:53 | Edited docs/proteus-f7-ecu-io.md | expanded (+11 lines) | ~332 |
 | 11:53 | Edited docs/proteus-f7-ecu-io.md | modified note() | ~94 |
 | 11:54 | Task 4: Updated docs/proteus-f7-ecu-io.md harness signal naming (Protocol, Current signal set, migration note) | docs/proteus-f7-ecu-io.md | Consistent naming from harness positions (ls/hs/ign/at/av/vbatt/vr/din); historical DMA note added | ~1200 |
+| 12:02 | Task 4 review fix: corrected verify_boot contract claim (crank -> harness sentinels din1/ls16/ign12/av11/vbatt) and re-wrapped the Output pins bullet | docs/proteus-f7-ecu-io.md | Commit 18105f7; Verification section re-checked against verify_boot.ps1 and config.yaml, no other contradictions | ~600 |
+| 11:55 | Created .superpowers/sdd/task-4-report.md | — | ~1468 |
+| 11:59 | Edited docs/proteus-f7-ecu-io.md | 3→5 lines | ~70 |
+| 11:59 | Edited docs/proteus-f7-ecu-io.md | modified pins() | ~66 |
+| 12:00 | Edited .superpowers/sdd/task-4-report.md | modified commit() | ~500 |
+| 12:20 | Task 5: live-verified the full harness I/O routing -- built release binary, ran proteus_f7/config.yaml (400M instr, -v), connected a client to ecu_io TCP port 29002 mid-run and fed av1/at3/vbatt/din1/bogus lines per brief. ECU IO client connected/disconnected cleanly, usbStart() marker still fired (regression OK), zero panics/errors/warnings over the full log, bogus=1 caused no crash/disconnect (stored inertly, not logged -- brief's "warning" expectation was inaccurate per ecu_io.rs's actual handle_line logic, confirmed by reading the source). TunerStudio gauge check (Step 4) skipped, pending human confirmation. | proteus_f7/config.yaml, src/ext_devices/ecu_io.rs (read only), .superpowers/sdd/task-5-report.md | DONE_WITH_CONCERNS: bridge-level routing proven; firmware-level ADC/GPIO consumption not proven in this pass (needs -vvv+ or TunerStudio); no bug found, no buglog entry needed | ~35000 |
+| 12:03 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/2ddd4150-2756-4300-8896-52f47e9b74d4/scratchpad/feed_harness.py | — | ~98 |
+| 12:05 | Created .superpowers/sdd/task-5-report.md | — | ~1897 |
