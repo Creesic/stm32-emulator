@@ -18,6 +18,12 @@ pub struct Dma {
     // forever right after arming the transfer.
     lisr: u32,
     hisr: u32,
+    // Per-stream deadline (in emulated instruction count, see poll()) at
+    // which an armed transfer's completion flag/interrupt fires.
+    complete_at: [Option<u64>; 8],
+    // Instruction count as of the last poll()/advance_to(); used to schedule
+    // deadlines without touching the global counter on every register write.
+    last_now: u64,
 }
 
 impl Dma {
@@ -44,6 +50,33 @@ impl Dma {
             16 + (local_index - 2) * 6
         };
         1 << (base + 5)
+    }
+
+    // Real transfers take time (a slow-ADC conversion chain is tens of
+    // microseconds). Completing them the instant they're armed lets an ISR
+    // that re-arms its own transfer (rusEFI's background slow ADC) re-pend
+    // its IRQ before exception return -- the interrupt tail-chains into
+    // itself forever and thread mode is starved completely, so firmware
+    // boot never progresses. Deadlines resolve in poll(), so the effective
+    // delay also rounds up to the code hook's pump interval (~131k
+    // instructions worst case), which is fine: it only needs to be "not
+    // zero thread time", not cycle-accurate.
+    const TRANSFER_COMPLETE_DELAY: u64 = 10_000;
+
+    fn advance_to(&mut self, sys: &System, now: u64) {
+        self.last_now = now;
+        for i in 0..self.streams.len() {
+            if self.complete_at[i].is_some_and(|at| at <= now) {
+                self.complete_at[i] = None;
+                self.set_transfer_complete_flag(i);
+                let tcie = self.streams[i].cr & (1 << 4) != 0;
+                if tcie {
+                    if let Some(irq) = Self::stream_irq(&self.name, i) {
+                        sys.p.nvic.borrow_mut().set_intr_pending(irq);
+                    }
+                }
+            }
+        }
     }
 
     fn set_transfer_complete_flag(&mut self, stream_index: usize) {
@@ -97,17 +130,16 @@ impl Peripheral for Dma {
             Access::Reg(0x0c) => self.hisr &= !value,
             Access::StreamReg(i, offset) => {
                 if self.streams[i].write(&self.name, sys, offset, value) {
-                    self.set_transfer_complete_flag(i);
-                    let tcie = self.streams[i].cr & (1 << 4) != 0;
-                    if tcie {
-                        if let Some(irq) = Self::stream_irq(&self.name, i) {
-                            sys.p.nvic.borrow_mut().set_intr_pending(irq);
-                        }
-                    }
+                    self.complete_at[i] = Some(self.last_now + Self::TRANSFER_COMPLETE_DELAY);
                 }
             }
             _ => {}
         }
+    }
+
+    fn poll(&mut self, sys: &System) {
+        let now = crate::emulator::NUM_INSTRUCTIONS.load(std::sync::atomic::Ordering::Relaxed);
+        self.advance_to(sys, now);
     }
 }
 
@@ -389,6 +421,41 @@ mod tests {
     }
 
     #[test]
+    fn transfer_completion_fires_only_after_the_scheduled_delay() {
+        // Completing a transfer the instant it's armed lets ISR-chained
+        // re-arms (rusEFI's background slow ADC: slowAdcEndCB calls
+        // adcStartConversionI from inside the ISR) re-pend the stream IRQ
+        // before exception return -- the IRQ tail-chains into itself forever
+        // and thread mode never runs (live-observed: boot never reaches
+        // usbStart). The flag and interrupt must only fire once some
+        // emulated time has passed.
+        let (mut uc, p, d) = test_parts();
+        let sys = System { uc: RefCell::new(&mut uc), p: p.clone(), d };
+        let mut dma = dma2();
+
+        dma.advance_to(&sys, 1_000);
+        dma.write(&sys, STREAM4_CR + 0x04, 0); // NDTR = 0, nothing to move
+        dma.write(&sys, STREAM4_CR, EN | TCIE);
+
+        // Nothing may fire at arm time...
+        assert_eq!(p.nvic.borrow_mut().get_and_clear_next_intr_pending(), None);
+        assert_eq!(dma.read(&sys, 0x04) & Dma::tcif_bit(0), 0);
+
+        // ...nor one instruction before the deadline...
+        dma.advance_to(&sys, 1_000 + Dma::TRANSFER_COMPLETE_DELAY - 1);
+        assert_eq!(p.nvic.borrow_mut().get_and_clear_next_intr_pending(), None);
+        assert_eq!(dma.read(&sys, 0x04) & Dma::tcif_bit(0), 0);
+
+        // ...but at the deadline both the flag and the IRQ appear.
+        dma.advance_to(&sys, 1_000 + Dma::TRANSFER_COMPLETE_DELAY);
+        assert_ne!(dma.read(&sys, 0x04) & Dma::tcif_bit(0), 0);
+        assert_eq!(
+            p.nvic.borrow_mut().get_and_clear_next_intr_pending(),
+            Some(60)
+        );
+    }
+
+    #[test]
     fn enabling_a_stream_transfer_raises_its_completion_interrupt_when_tcie_is_set() {
         // ChibiOS's blocking ADC conversion (adcConvert(), used by rusEFI's
         // slow-ADC reads) waits on exactly this interrupt to signal a
@@ -400,6 +467,7 @@ mod tests {
 
         dma.write(&sys, STREAM4_CR + 0x04, 0); // NDTR = 0, nothing to move
         dma.write(&sys, STREAM4_CR, EN | TCIE);
+        dma.advance_to(&sys, Dma::TRANSFER_COMPLETE_DELAY);
 
         assert_eq!(
             p.nvic.borrow_mut().get_and_clear_next_intr_pending(),
@@ -415,6 +483,7 @@ mod tests {
 
         dma.write(&sys, STREAM4_CR + 0x04, 0);
         dma.write(&sys, STREAM4_CR, EN);
+        dma.advance_to(&sys, Dma::TRANSFER_COMPLETE_DELAY);
 
         assert_eq!(p.nvic.borrow_mut().get_and_clear_next_intr_pending(), None);
         assert_ne!(dma.read(&sys, 0x04) & Dma::tcif_bit(0), 0);
@@ -428,6 +497,7 @@ mod tests {
 
         dma.write(&sys, STREAM4_CR + 0x04, 0);
         dma.write(&sys, STREAM4_CR, EN);
+        dma.advance_to(&sys, Dma::TRANSFER_COMPLETE_DELAY);
         let bit = Dma::tcif_bit(0);
         assert_ne!(dma.read(&sys, 0x04) & bit, 0);
 
