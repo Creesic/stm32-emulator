@@ -2,6 +2,114 @@ use std::path::PathBuf;
 
 use stm32_emulator::launcher::{KnownVariant, LauncherCpuModel, ResolvedProfile};
 
+/// Full Proteus harness pin table (name, pin, direction), copied from
+/// `src/launcher/boards/proteus_f7.rs`'s `ECU_IO_PINS`. Order matters: this
+/// asserts the generated YAML's pin list matches exactly, not just that each
+/// entry is present somewhere.
+fn expected_ecu_io_pins() -> Vec<(&'static str, &'static str, &'static str)> {
+    vec![
+        ("vr1", "PE7", "input"),
+        ("vr2", "PE8", "input"),
+        ("din1", "PC6", "input"),
+        ("din2", "PE11", "input"),
+        ("din3", "PE12", "input"),
+        ("din4", "PE14", "input"),
+        ("din5", "PE13", "input"),
+        ("din6", "PE15", "input"),
+        ("ls1", "PD7", "output"),
+        ("ls2", "PG9", "output"),
+        ("ls3", "PG10", "output"),
+        ("ls4", "PG11", "output"),
+        ("ls5", "PG12", "output"),
+        ("ls6", "PG13", "output"),
+        ("ls7", "PG14", "output"),
+        ("ls8", "PB4", "output"),
+        ("ls9", "PB5", "output"),
+        ("ls10", "PB6", "output"),
+        ("ls11", "PB7", "output"),
+        ("ls12", "PB8", "output"),
+        ("ls13", "PB9", "output"),
+        ("ls14", "PE0", "output"),
+        ("ls15", "PE1", "output"),
+        ("ls16", "PE2", "output"),
+        ("hs1", "PA9", "output"),
+        ("hs2", "PA8", "output"),
+        ("hs3", "PD15", "output"),
+        ("hs4", "PD14", "output"),
+        ("ign1", "PD4", "output"),
+        ("ign2", "PD3", "output"),
+        ("ign3", "PC9", "output"),
+        ("ign4", "PC8", "output"),
+        ("ign5", "PC7", "output"),
+        ("ign6", "PG8", "output"),
+        ("ign7", "PG7", "output"),
+        ("ign8", "PG6", "output"),
+        ("ign9", "PG5", "output"),
+        ("ign10", "PG4", "output"),
+        ("ign11", "PG3", "output"),
+        ("ign12", "PG2", "output"),
+    ]
+}
+
+/// Full Proteus harness ADC channel table (name, pin), copied from
+/// `src/launcher/boards/proteus_f7.rs`'s `ECU_IO_ADC_CHANNELS`.
+fn expected_ecu_io_adc_channels() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("at1", "PC4"),
+        ("at2", "PC5"),
+        ("at3", "PB0"),
+        ("at4", "PB1"),
+        ("av1", "PC0"),
+        ("av2", "PC1"),
+        ("av3", "PC2"),
+        ("av4", "PC3"),
+        ("av5", "PA0"),
+        ("av6", "PA1"),
+        ("av7", "PA2"),
+        ("av8", "PA3"),
+        ("av9", "PA4"),
+        ("av10", "PA5"),
+        ("av11", "PA6"),
+        ("vbatt", "PA7"),
+    ]
+}
+
+/// Parses `yaml` and returns the first (only) `devices.ecu_io` entry as a
+/// `serde_yaml::Value`, for structural (not substring) assertions.
+fn ecu_io_value(yaml: &str) -> serde_yaml::Value {
+    let root: serde_yaml::Value = serde_yaml::from_str(yaml).expect("generated YAML must parse");
+    root["devices"]["ecu_io"][0].clone()
+}
+
+fn pins_from(ecu_io: &serde_yaml::Value) -> Vec<(String, String, String)> {
+    ecu_io["pins"]
+        .as_sequence()
+        .expect("ecu_io.pins must be a sequence")
+        .iter()
+        .map(|pin| {
+            (
+                pin["name"].as_str().expect("pin.name must be a string").to_string(),
+                pin["pin"].as_str().expect("pin.pin must be a string").to_string(),
+                pin["direction"].as_str().expect("pin.direction must be a string").to_string(),
+            )
+        })
+        .collect()
+}
+
+fn adc_channels_from(ecu_io: &serde_yaml::Value) -> Vec<(String, String)> {
+    ecu_io["adc_channels"]
+        .as_sequence()
+        .expect("ecu_io.adc_channels must be a sequence")
+        .iter()
+        .map(|channel| {
+            (
+                channel["name"].as_str().expect("adc_channel.name must be a string").to_string(),
+                channel["pin"].as_str().expect("adc_channel.pin must be a string").to_string(),
+            )
+        })
+        .collect()
+}
+
 #[test]
 fn proteus_f7_resolves_both_verified_firmware_aliases() {
     let profile = ResolvedProfile::for_variant(
@@ -101,6 +209,56 @@ fn proteus_f7_yaml_includes_the_usb_cdc_tcp_and_ecu_io_devices() {
     assert!(yaml.contains("pin: PG2")); // ign12
     assert!(!yaml.contains("name: crank")); // old functional names are gone
     assert!(!yaml.contains("name: map"));
+}
+
+#[test]
+fn proteus_f7_yaml_binds_every_harness_name_to_its_exact_pin_and_direction() {
+    // The substring checks above (direction/name counts) pass under any
+    // permutation of pins, so they can't catch a name bound to the wrong
+    // pin or direction. Assert the full structural map instead.
+    let profile = ResolvedProfile::for_variant(
+        KnownVariant::proteus_f7(),
+        PathBuf::from("rusefi.bin"),
+        PathBuf::from("STM32F767.svd"),
+    )
+    .unwrap();
+
+    let ecu_io = ecu_io_value(&profile.to_yaml().unwrap());
+
+    let expected_pins: Vec<(String, String, String)> = expected_ecu_io_pins()
+        .into_iter()
+        .map(|(name, pin, direction)| (name.to_string(), pin.to_string(), direction.to_string()))
+        .collect();
+    assert_eq!(pins_from(&ecu_io), expected_pins);
+
+    let expected_adc_channels: Vec<(String, String)> = expected_ecu_io_adc_channels()
+        .into_iter()
+        .map(|(name, pin)| (name.to_string(), pin.to_string()))
+        .collect();
+    assert_eq!(adc_channels_from(&ecu_io), expected_adc_channels);
+}
+
+#[test]
+fn proteus_f7_config_yaml_matches_the_launcher_generated_ecu_io_device() {
+    // Drift guard: the harness map is deliberately duplicated between the
+    // launcher profile tables and proteus_f7/config.yaml (see
+    // docs/superpowers/specs/2026-07-15-proteus-harness-io-design.md). This
+    // asserts the two surfaces stay entry-for-entry identical.
+    let profile = ResolvedProfile::for_variant(
+        KnownVariant::proteus_f7(),
+        PathBuf::from("rusefi.bin"),
+        PathBuf::from("STM32F767.svd"),
+    )
+    .unwrap();
+    let launcher_ecu_io = ecu_io_value(&profile.to_yaml().unwrap());
+
+    let config_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("proteus_f7/config.yaml");
+    let config_yaml = std::fs::read_to_string(&config_path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", config_path.display()));
+    let config_ecu_io = ecu_io_value(&config_yaml);
+
+    assert_eq!(pins_from(&launcher_ecu_io), pins_from(&config_ecu_io));
+    assert_eq!(adc_channels_from(&launcher_ecu_io), adc_channels_from(&config_ecu_io));
 }
 
 #[test]
