@@ -63,10 +63,11 @@ TIM output model exists.
 `name: vbatt`), and the existing one-instruction reset-vector smoke
 test.
 
-The TCP bridge itself is confirmed live: connecting a client to
+**Historical capture (pre-2026-07-15, pre-rename):** connecting a client to
 `127.0.0.1:29002` and sending `map=1500\n` then four `crank=1\n`/
-`crank=0\n` pairs produces exactly this in the emulator's log (`-vv`
-or higher):
+`crank=0\n` pairs — using the old functional signal names, since replaced
+by the harness-position names above (see the migration table) — produced
+exactly this in the emulator's log (`-vv` or higher):
 
 ```
 [clk=744226817 pc=0x002793de] INFO  ECU IO client connected from 127.0.0.1:59063
@@ -80,6 +81,14 @@ the already-working TunerStudio path was reconfirmed healthy — a raw
 `'Q'` byte sent to port 29000 got back the real 45-byte signature in
 under 0.3s (`rusEFI Tera.2026.06.30.proteus_f7.1962987583`) — so the
 general boot/RTOS/USB path was not regressed by this change.
+
+**Current live capture (2026-07-15, current harness names):** feeding
+`av1=1500`, `at3=2000`, `vbatt=2100`, `din1=1`, `din1=0`, and an unknown
+signal name over `127.0.0.1:29002` produced clean `ECU IO client connected
+from 127.0.0.1:...` / `ECU IO client disconnected` INFO lines, with no
+errors or panics anywhere in the log, and the boot regression check (the
+`usbStart()` marker, reached at clk≈57,000,000) still intact on the same
+run.
 
 **Historical note (pre-2026-07-15):** the capture below predates the DMA
 transfer-complete delay fix; since that fix, firmware's slow-ADC loop runs
