@@ -16,10 +16,10 @@ independent listener on the same run.
 Connect with any raw TCP client, e.g. `ncat 127.0.0.1 29002`. One line
 per message, `name=value`:
 
-- Digital input pins (`crank`, `cam`): `value` is `0` or `1`.
-- ADC channels (`map`, `tps`, `clt`, `iat`, `vbatt`): `value` is
+- Digital input pins (`vr1`, `vr2`, `din1`–`din6`): `value` is `0` or `1`.
+- ADC channels (`at1`–`at4`, `av1`–`av11`, `vbatt`): `value` is
   millivolts, clamped to 0-3300 (VREF+).
-- Output pins (`inj1`, `ign1`): the emulator sends `name=value` lines
+- Output pins (`ls1`–`ls16`, `hs1`–`hs4`, `ign1`–`ign12`): the emulator sends `name=value` lines
   to the connected client whenever firmware drives that pin to a new
   level. There is nothing to send for these — they are observed, not
   driven.
@@ -29,20 +29,31 @@ Only one client at a time, same rule as the USB CDC bridge
 
 ## Current signal set
 
-Digital inputs: `crank` (PC6, confirmed as this board's default crank
-trigger pin). `cam` (PE11) is a best-effort default — confirm it
-against whatever trigger configuration is actually set in TunerStudio
-for your engine, since cam wiring is itself a user-configurable rusEFI
-setting, not a board-fixed default like crank.
+Signals are named by physical Proteus harness position, not tune role —
+the tune decides which position carries MAP or injector 3, exactly like
+wiring a real harness. Source: `proteus_meta.h` (epicefi_fw).
 
-Analog inputs: `map`, `tps`, `clt`, `iat`, `vbatt` — all routed through
-ADC1's real channel-to-pin mapping (channels 10, 11, 8, 15, 7
-respectively), confirmed from rusEFI's Proteus board source.
+| Group | Names | Pins (in order) |
+|---|---|---|
+| Lowside outputs | `ls1`–`ls16` | PD7, PG9–PG14, PB4–PB9, PE0–PE2 |
+| Highside outputs | `hs1`–`hs4` | PA9, PA8, PD15, PD14 |
+| Ignition outputs | `ign1`–`ign12` | PD4, PD3, PC9, PC8, PC7, PG8–PG2 |
+| Analog Temp inputs | `at1`–`at4` | PC4, PC5, PB0, PB1 |
+| Analog Volt inputs | `av1`–`av11` | PC0–PC3, PA0–PA6 |
+| Battery sense | `vbatt` | PA7 |
+| VR trigger inputs | `vr1`, `vr2` | PE7, PE8 |
+| Digital inputs | `din1`–`din6` | PC6, PE11, PE12, PE14, PE13, PE15 |
 
-Observed outputs: `inj1` (PD7, injector 1 low-side driver), `ign1`
-(PD4, ignition 1 driver) — a small starting set; extending to more
-injector/ignition channels is a config-only change (add more `pins`
-entries), no code change needed.
+Note `din5`/`din6` are PE13/PE15 in that order (PROTEUS_DIGITAL_5/6).
+
+Migration from the pre-2026-07-15 functional names: `map`→`av1`,
+`tps`→`av2`, `clt`→`at3`, `iat`→`at2`, `crank`→`din1`, `cam`→`din2`,
+`inj1`→`ls1`; `vbatt` and `ign1` are unchanged (as names — `ign1` now
+means harness ignition position 1, still PD4).
+
+Only GPIO-driven output writes are observable; firmware functions routed
+through hardware timer PWM (idle, boost) will not produce events until a
+TIM output model exists.
 
 ## Verification
 
@@ -67,6 +78,11 @@ the already-working TunerStudio path was reconfirmed healthy — a raw
 `'Q'` byte sent to port 29000 got back the real 45-byte signature in
 under 0.3s (`rusEFI Tera.2026.06.30.proteus_f7.1962987583`) — so the
 general boot/RTOS/USB path was not regressed by this change.
+
+**Historical note (pre-2026-07-15):** the capture below predates the DMA
+transfer-complete delay fix; since that fix, firmware's slow-ADC loop runs
+continuously (ADC1 is read constantly) and boot reaches `usbStart()`, so
+the "ADC1 was never read" observation below no longer holds.
 
 **What could not be confirmed live:** across two separate captures on
 unmodified `rusefi.bin` — one at `-vv` reaching clk≈1.19 billion, one

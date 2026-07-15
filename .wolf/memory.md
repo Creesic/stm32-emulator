@@ -726,3 +726,8 @@
 | 11:44 | Created .superpowers/sdd/task-2-report.md | — | ~1262 |
 | 11:48 | Edited proteus_f7/config.yaml | expanded (+50 lines) | ~882 |
 | 11:48 | Edited proteus_f7/verify_boot.ps1 | 3→7 lines | ~37 |
+| 11:50 | Created .superpowers/sdd/task-3-report.md | — | ~1008 |
+| 11:53 | Edited docs/proteus-f7-ecu-io.md | modified pins() | ~143 |
+| 11:53 | Edited docs/proteus-f7-ecu-io.md | expanded (+11 lines) | ~332 |
+| 11:53 | Edited docs/proteus-f7-ecu-io.md | modified note() | ~94 |
+| 11:54 | Task 4: Updated docs/proteus-f7-ecu-io.md harness signal naming (Protocol, Current signal set, migration note) | docs/proteus-f7-ecu-io.md | Consistent naming from harness positions (ls/hs/ign/at/av/vbatt/vr/din); historical DMA note added | ~1200 |
