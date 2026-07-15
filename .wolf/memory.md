@@ -427,3 +427,289 @@
 | 15:58 | Edited proteus_f7/boot-sequence-notes.md | expanded (+10 lines) | ~212 |
 | 15:58 | Session end: 96 writes across 33 files (otg_fs.rs, usb_trace_notes.md, ts_query.py, proteus-f7-usb.md, 2026-07-10-proteus-f7-virtual-usb.md) | 107 reads | ~165523 tok |
 | 16:45 | Session end: 96 writes across 33 files (otg_fs.rs, usb_trace_notes.md, ts_query.py, proteus-f7-usb.md, 2026-07-10-proteus-f7-virtual-usb.md) | 107 reads | ~165523 tok |
+| 10:44 | Session end: 96 writes across 33 files (otg_fs.rs, usb_trace_notes.md, ts_query.py, proteus-f7-usb.md, 2026-07-10-proteus-f7-virtual-usb.md) | 107 reads | ~165523 tok |
+
+## Session: 2026-07-13 10:50
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 11:34 | Edited src/launcher/mod.rs | expanded (+6 lines) | ~88 |
+| 11:34 | Edited src/launcher/mod.rs | inline fix | ~13 |
+| 11:35 | Session end: 2 writes across 1 files (mod.rs) | 3 reads | ~432 tok |
+| 11:37 | Session end: 2 writes across 1 files (mod.rs) | 4 reads | ~3872 tok |
+| 11:44 | Session end: 2 writes across 1 files (mod.rs) | 9 reads | ~7122 tok |
+| 12:01 | Session end: 2 writes across 1 files (mod.rs) | 9 reads | ~7122 tok |
+| 12:02 | Created docs/superpowers/specs/2026-07-13-launcher-process-status-design.md | — | ~1416 |
+| 12:03 | Session end: 3 writes across 2 files (mod.rs, 2026-07-13-launcher-process-status-design.md) | 9 reads | ~8639 tok |
+| 12:08 | Created docs/superpowers/plans/2026-07-13-launcher-process-status.md | — | ~6376 |
+| 12:08 | Edited docs/superpowers/plans/2026-07-13-launcher-process-status.md | failure() → target() | ~99 |
+| 12:09 | Session end: 5 writes across 3 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md) | 10 reads | ~32613 tok |
+| 12:10 | Edited src/launcher/process.rs | modified a_zero_exit_code_is_classified_as_a_successful_exit() | ~173 |
+| 12:10 | Edited src/launcher/process.rs | modified classify_exit() | ~72 |
+| 12:10 | Edited src/launcher/process.rs | modified poll_state() | ~68 |
+| 12:10 | Created tests/launcher_state.rs | — | ~282 |
+| 12:11 | Created src/launcher/ui_state.rs | — | ~175 |
+| 12:12 | Edited src/bin/stm32-launcher.rs | 5→6 lines | ~78 |
+| 12:12 | Edited src/bin/stm32-launcher.rs | 1→2 lines | ~26 |
+| 12:12 | Edited src/bin/stm32-launcher.rs | inline fix | ~14 |
+| 12:13 | Edited src/bin/stm32-launcher.rs | modified stop() | ~314 |
+| 12:13 | Edited src/bin/stm32-launcher.rs | modified indicator() | ~184 |
+| 12:13 | Edited src/bin/stm32-launcher.rs | inline fix | ~16 |
+| 12:13 | Edited src/bin/stm32-launcher.rs | 4→1 lines | ~25 |
+| 12:13 | Edited src/bin/stm32-launcher.rs | modified display_path() | ~218 |
+| 12:14 | Session end: 18 writes across 7 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 10 reads | ~37826 tok |
+| 12:14 | Session end: 18 writes across 7 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 10 reads | ~37826 tok |
+| 12:19 | Session end: 18 writes across 7 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 10 reads | ~37826 tok |
+| 12:20 | Session end: 18 writes across 7 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 10 reads | ~37826 tok |
+| 12:20 | Session end: 18 writes across 7 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 10 reads | ~37826 tok |
+| 12:22 | Session end: 18 writes across 7 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 10 reads | ~37826 tok |
+| 12:23 | Session end: 18 writes across 7 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 10 reads | ~37826 tok |
+| 12:26 | Session end: 18 writes across 7 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 11 reads | ~39630 tok |
+| 12:32 | Edited tests/launcher_profile.rs | modified proteus_f7_yaml_includes_the_usb_cdc_tcp_and_ecu_io_devices() | ~307 |
+| 12:32 | Edited src/launcher/mod.rs | expanded (+27 lines) | ~231 |
+| 12:32 | Edited src/launcher/mod.rs | modified for_variant() | ~207 |
+| 12:32 | Edited src/launcher/mod.rs | modified to_yaml() | ~361 |
+| 12:32 | Edited src/launcher/mod.rs | 6→8 lines | ~64 |
+| 12:33 | Edited src/launcher/mod.rs | expanded (+35 lines) | ~407 |
+| 12:33 | Edited tests/launcher_profile.rs | 2→3 lines | ~30 |
+| 12:33 | Edited tests/launcher_profile.rs | 10→9 lines | ~113 |
+| 12:35 | Session end: 26 writes across 8 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 14 reads | ~41474 tok |
+| 12:35 | Session end: 26 writes across 8 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 14 reads | ~41474 tok |
+| 13:33 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/probe_ts.py | — | ~146 |
+| 13:34 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/probe_ts2.py | — | ~200 |
+| 13:43 | Edited src/peripherals/otg_fs.rs | modified dtxfsts_reports_room_for_a_full_control_packet() | ~420 |
+| 13:44 | Edited src/peripherals/otg_fs.rs | modified virtual_host_reset() | ~266 |
+| 13:46 | Session end: 30 writes across 11 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 17 reads | ~53423 tok |
+| 13:46 | Session end: 30 writes across 11 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 17 reads | ~53423 tok |
+| 13:56 | Edited src/peripherals/nvic.rs | 1→5 lines | ~60 |
+| 13:56 | Edited src/peripherals/nvic.rs | expanded (+10 lines) | ~180 |
+| 13:57 | Edited src/peripherals/nvic.rs | 3→3 lines | ~44 |
+| 13:57 | Edited src/peripherals/nvic.rs | modified test_parts() | ~471 |
+| 13:57 | Edited src/peripherals/nvic.rs | removed 11 lines | ~13 |
+| 13:58 | Edited src/peripherals/nvic.rs | expanded (+10 lines) | ~179 |
+| 13:59 | Session end: 36 writes across 12 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 21 reads | ~64039 tok |
+| 14:04 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/ts_proxy.py | — | ~671 |
+| 14:04 | Session end: 37 writes across 13 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 21 reads | ~64710 tok |
+| 14:08 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/replay_f.py | — | ~200 |
+| 14:12 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/replay_framed.py | — | ~224 |
+| 14:16 | Session end: 39 writes across 15 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 22 reads | ~65134 tok |
+| 14:20 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/replay_cmd.py | — | ~298 |
+| 14:25 | Session end: 40 writes across 16 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 24 reads | ~65432 tok |
+| 14:26 | Session end: 40 writes across 16 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 24 reads | ~65432 tok |
+| 14:35 | Session end: 40 writes across 16 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 24 reads | ~65432 tok |
+| 14:38 | Session end: 40 writes across 16 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 24 reads | ~65432 tok |
+| 14:43 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/replay_seq.py | — | ~275 |
+| 14:44 | Edited src/emulator.rs | expanded (+8 lines) | ~175 |
+| 14:45 | Session end: 42 writes across 18 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 24 reads | ~65894 tok |
+| 15:00 | Session end: 42 writes across 18 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 24 reads | ~66040 tok |
+| 15:08 | Edited src/peripherals/nvic.rs | expanded (+14 lines) | ~291 |
+| 15:08 | Edited src/peripherals/nvic.rs | 4→9 lines | ~80 |
+| 15:11 | Session end: 44 writes across 18 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 24 reads | ~66438 tok |
+| 15:13 | Session end: 44 writes across 18 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 24 reads | ~66438 tok |
+| 15:16 | Edited src/peripherals/nvic.rs | modified run_pending_interrupts() | ~332 |
+| 15:17 | Edited src/peripherals/nvic.rs | modified pending_dispatch_is_deferred_while_mid_it_block_then_fires_once_clear() | ~454 |
+| 15:17 | Edited src/peripherals/nvic.rs | 3→3 lines | ~27 |
+| 15:17 | Edited src/peripherals/nvic.rs | modified in_it_block() | ~34 |
+| 15:19 | Session end: 48 writes across 18 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 24 reads | ~68276 tok |
+| 15:28 | Edited src/peripherals/otg_fs.rs | inline fix | ~25 |
+| 15:28 | Edited src/peripherals/otg_fs.rs | 5→6 lines | ~49 |
+| 15:29 | Edited src/peripherals/otg_fs.rs | modified new() | ~897 |
+| 15:29 | Edited src/peripherals/otg_fs.rs | removed 66 lines | ~34 |
+| 15:30 | Edited src/peripherals/otg_fs.rs | expanded (+8 lines) | ~302 |
+| 15:30 | Edited src/peripherals/otg_fs.rs | 3→3 lines | ~59 |
+| 15:32 | Session end: 54 writes across 18 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 25 reads | ~71184 tok |
+| 15:36 | Edited src/peripherals/nvic.rs | expanded (+8 lines) | ~174 |
+| 15:36 | Edited src/peripherals/nvic.rs | modified run_pending_interrupts() | ~614 |
+| 15:36 | Edited src/emulator.rs | 4→5 lines | ~82 |
+| 15:37 | Edited src/peripherals/nvic.rs | modified pending_dispatch_is_deferred_while_mid_it_block_then_fires_once_clear() | ~746 |
+| 15:39 | Session end: 58 writes across 18 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 25 reads | ~73345 tok |
+| 16:13 | Session end: 58 writes across 18 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 25 reads | ~73345 tok |
+| 16:36 | Edited src/peripherals/nvic.rs | expanded (+8 lines) | ~305 |
+| 16:36 | Edited src/peripherals/nvic.rs | 3→3 lines | ~34 |
+| 16:36 | Edited src/peripherals/nvic.rs | modified note_fetched_instruction() | ~390 |
+| 16:36 | Edited src/peripherals/nvic.rs | 22→21 lines | ~294 |
+| 16:37 | Edited src/peripherals/nvic.rs | expanded (+11 lines) | ~349 |
+| 16:38 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/replay_full.py | — | ~320 |
+| 16:41 | Session end: 64 writes across 19 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 25 reads | ~75745 tok |
+| 16:48 | Edited src/ext_devices/usb_cdc_tcp.rs | modified push_capped() | ~518 |
+| 16:48 | Edited src/ext_devices/usb_cdc_tcp.rs | modified read() | ~134 |
+| 16:48 | Edited src/ext_devices/usb_cdc_tcp.rs | modified receive_from_client() | ~732 |
+| 16:50 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/replay_leak_check.py | — | ~358 |
+| 16:53 | Session end: 68 writes across 21 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 25 reads | ~77585 tok |
+| 16:59 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/replay_exact_r.py | — | ~458 |
+| 19:25 | Edited src/peripherals/otg_fs.rs | modified arming_a_later_chunk_reraises_txfe_while_the_mask_stays_enabled() | ~746 |
+| 19:25 | Edited src/peripherals/otg_fs.rs | expanded (+13 lines) | ~351 |
+| 19:26 | Edited src/peripherals/otg_fs.rs | reduced (-13 lines) | ~93 |
+| 19:26 | Edited src/peripherals/otg_fs.rs | expanded (+13 lines) | ~345 |
+| 19:29 | Session end: 73 writes across 22 files (mod.rs, 2026-07-13-launcher-process-status-design.md, 2026-07-13-launcher-process-status.md, process.rs, launcher_state.rs) | 25 reads | ~80631 tok |
+
+## Session: 2026-07-13 19:36
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 19:54 | Edited src/peripherals/tim5.rs | modified new() | ~586 |
+| 19:54 | Edited src/peripherals/tim5.rs | modified write_cnt() | ~538 |
+| 19:54 | Edited src/peripherals/tim5.rs | modified test_parts() | ~184 |
+| 19:55 | Edited src/peripherals/tim5.rs | modified cnt_written_while_disabled_takes_effect_once_enabled() | ~633 |
+| 19:55 | Edited src/peripherals/tim5.rs | inline fix | ~4 |
+| 19:55 | Edited src/peripherals/tim5.rs | inline fix | ~14 |
+| 20:14 | Edited src/ext_devices/usb_cdc_tcp.rs | modified accept_clients() | ~394 |
+| 20:14 | Edited src/ext_devices/usb_cdc_tcp.rs | 5→9 lines | ~45 |
+| 20:14 | Edited src/ext_devices/usb_cdc_tcp.rs | 9→5 lines | ~34 |
+| 20:14 | Edited src/ext_devices/usb_cdc_tcp.rs | modified a_new_connection_replaces_a_stale_one_instead_of_being_rejected() | ~546 |
+| 20:17 | Session end: 10 writes across 2 files (tim5.rs, usb_cdc_tcp.rs) | 11 reads | ~33477 tok |
+| 20:20 | Session end: 10 writes across 2 files (tim5.rs, usb_cdc_tcp.rs) | 11 reads | ~33477 tok |
+| 20:24 | Session end: 10 writes across 2 files (tim5.rs, usb_cdc_tcp.rs) | 11 reads | ~33477 tok |
+| 20:30 | Edited src/peripherals/nvic.rs | modified default() | ~538 |
+| 20:30 | Edited src/peripherals/nvic.rs | modified set_intr_pending() | ~81 |
+| 20:30 | Edited src/peripherals/nvic.rs | modified read() | ~166 |
+| 20:30 | Edited src/peripherals/nvic.rs | added 1 condition(s) | ~155 |
+| 20:32 | Edited src/peripherals/nvic.rs | inline fix | ~15 |
+| 20:33 | Edited src/peripherals/nvic.rs | modified ipr_register_round_trips_a_priority_byte_written_for_one_irq() | ~502 |
+| 20:44 | Session end: 16 writes across 3 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs) | 14 reads | ~35985 tok |
+| 20:46 | Session end: 16 writes across 3 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs) | 14 reads | ~35985 tok |
+| 21:09 | Session end: 16 writes across 3 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs) | 14 reads | ~35985 tok |
+| 21:16 | Session end: 16 writes across 3 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs) | 14 reads | ~35985 tok |
+| 21:22 | Session end: 16 writes across 3 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs) | 14 reads | ~35985 tok |
+| 21:31 | Session end: 16 writes across 3 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs) | 17 reads | ~37788 tok |
+| 21:50 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/gui_equivalent_config.yaml | — | ~372 |
+| 21:51 | Session end: 17 writes across 4 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml) | 19 reads | ~40975 tok |
+| 21:55 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/exact_live_config.yaml | — | ~388 |
+| 22:01 | Session end: 18 writes across 5 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 21 reads | ~47992 tok |
+| 22:29 | Edited src/peripherals/nvic.rs | modified new() | ~355 |
+| 22:29 | Edited src/peripherals/mod.rs | modified new() | ~235 |
+| 22:30 | Edited src/peripherals/nvic.rs | modified new() | ~312 |
+| 22:30 | Edited src/peripherals/mod.rs | expanded (+6 lines) | ~316 |
+| 22:31 | Edited src/peripherals/mod.rs | modified new() | ~452 |
+| 22:31 | Edited src/peripherals/mod.rs | modified core_scb_model_covers_interrupt_control_register() | ~234 |
+| 22:33 | Session end: 24 writes across 6 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 23 reads | ~50342 tok |
+| 22:42 | Edited src/peripherals/nvic.rs | modified default() | ~321 |
+| 22:42 | Edited src/peripherals/nvic.rs | modified active_exception_number() | ~108 |
+| 22:42 | Edited src/peripherals/nvic.rs | 4→5 lines | ~31 |
+| 22:42 | Edited src/peripherals/scb.rs | modified read_icsr() | ~188 |
+| 22:42 | Edited src/peripherals/scb.rs | modified test_parts() | ~525 |
+| 22:42 | Edited src/peripherals/nvic.rs | modified active_exception_number() | ~63 |
+| 22:45 | Edited src/peripherals/nvic.rs | 3→7 lines | ~66 |
+| 22:45 | Edited src/peripherals/nvic.rs | modified write() | ~114 |
+| 22:45 | Edited src/peripherals/scb.rs | modified read_icsr() | ~154 |
+| 22:48 | Edited src/peripherals/nvic.rs | modified read() | ~115 |
+| 22:51 | Edited src/peripherals/mod.rs | modified get_peripheral() | ~169 |
+| 22:53 | Edited src/peripherals/nvic.rs | 7→3 lines | ~28 |
+| 22:53 | Edited src/peripherals/nvic.rs | modified read() | ~96 |
+| 22:53 | Edited src/peripherals/scb.rs | 4→2 lines | ~22 |
+| 22:54 | Edited src/peripherals/mod.rs | modified sub_word_read_extracts_the_targeted_byte_not_the_whole_word_shifted_up() | ~504 |
+| 22:57 | Session end: 39 writes across 7 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 25 reads | ~54523 tok |
+| 23:03 | Edited proteus_f7/config.yaml | expanded (+10 lines) | ~172 |
+| 23:04 | Edited src/launcher/mod.rs | expanded (+6 lines) | ~81 |
+| 23:04 | Edited src/launcher/mod.rs | 10→11 lines | ~88 |
+| 23:04 | Edited src/launcher/mod.rs | 11→12 lines | ~98 |
+| 23:04 | Edited src/launcher/mod.rs | 11→12 lines | ~87 |
+| 23:04 | Edited src/launcher/mod.rs | 8→9 lines | ~71 |
+| 23:05 | Edited src/launcher/mod.rs | 7→8 lines | ~62 |
+| 23:05 | Edited src/launcher/mod.rs | expanded (+11 lines) | ~177 |
+| 23:05 | Edited src/launcher/mod.rs | 5→6 lines | ~65 |
+| 23:05 | Edited src/launcher/mod.rs | 7→9 lines | ~73 |
+| 23:06 | Edited tests/launcher_profile.rs | modified manual_profile_yaml_uses_the_selected_cpu_model() | ~383 |
+| 23:06 | Edited tests/launcher_profile.rs | "start: 536906306" → "start: 535884866" | ~17 |
+| 23:18 | Session end: 51 writes across 9 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 29 reads | ~57051 tok |
+| 23:19 | Session end: 51 writes across 9 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 29 reads | ~57051 tok |
+| 23:23 | Edited src/peripherals/dma.rs | modified new() | ~980 |
+| 23:23 | Edited src/peripherals/dma.rs | modified write() | ~337 |
+| 23:25 | Edited src/peripherals/dma.rs | modified from_offset() | ~930 |
+| 23:33 | Session end: 54 writes across 10 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 35 reads | ~62166 tok |
+| 23:33 | Session end: 54 writes across 10 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 35 reads | ~62166 tok |
+| 07:39 | Edited src/launcher/mod.rs | modified from() | ~251 |
+| 07:39 | Edited src/launcher/mod.rs | 4→4 lines | ~33 |
+| 07:40 | Edited src/launcher/mod.rs | modified usb_cdc_tcp_port() | ~240 |
+| 07:40 | Edited src/launcher/mod.rs | modified is_some() | ~82 |
+| 07:40 | Edited src/launcher/mod.rs | 7→7 lines | ~59 |
+| 07:41 | Edited src/launcher/workspace.rs | expanded (+6 lines) | ~108 |
+| 07:42 | Edited src/bin/stm32-launcher.rs | 8→9 lines | ~62 |
+| 07:42 | Edited src/bin/stm32-launcher.rs | modified is_empty() | ~91 |
+| 07:42 | Edited src/bin/stm32-launcher.rs | 4→5 lines | ~53 |
+| 07:43 | Edited src/bin/stm32-launcher.rs | modified resolved_profile() | ~508 |
+| 07:43 | Edited src/bin/stm32-launcher.rs | modified parse_address() | ~150 |
+| 07:43 | Edited src/bin/stm32-launcher.rs | modified resolved_profile() | ~80 |
+| 07:44 | Edited tests/launcher_profile.rs | modified usb_cdc_tcp_port_defaults_to_the_profiles_template_value() | ~371 |
+| 07:47 | Session end: 67 writes across 12 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 37 reads | ~66597 tok |
+| 08:38 | Edited src/peripherals/dma.rs | 12→17 lines | ~195 |
+| 08:41 | Session end: 68 writes across 12 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 38 reads | ~67646 tok |
+| 08:45 | Session end: 68 writes across 12 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 38 reads | ~67646 tok |
+| 08:59 | Edited src/ext_devices/usb_cdc_tcp.rs | 23→28 lines | ~205 |
+| 09:00 | Edited src/ext_devices/usb_cdc_tcp.rs | 8→9 lines | ~60 |
+| 09:00 | Edited src/ext_devices/usb_cdc_tcp.rs | modified accept_clients() | ~632 |
+| 09:00 | Edited src/ext_devices/usb_cdc_tcp.rs | modified mark_disconnected() | ~61 |
+| 09:01 | Edited src/ext_devices/usb_cdc_tcp.rs | STALE_CLIENT_GRACE_PERIOD() → stale_client_grace_period() | ~115 |
+| 09:01 | Edited src/ext_devices/usb_cdc_tcp.rs | modified set_stale_client_grace_period_for_test() | ~121 |
+| 09:01 | Edited src/ext_devices/usb_cdc_tcp.rs | modified is_some() | ~72 |
+| 09:01 | Edited src/ext_devices/usb_cdc_tcp.rs | modified a_new_connection_is_rejected_while_the_current_client_is_within_its_grace_period() | ~1087 |
+| 09:02 | Edited src/ext_devices/usb_cdc_tcp.rs | modified read() | ~188 |
+| 09:03 | Session end: 77 writes across 12 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 40 reads | ~71239 tok |
+| 09:10 | Session end: 77 writes across 12 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 40 reads | ~71239 tok |
+| 09:15 | Session end: 77 writes across 12 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 40 reads | ~71239 tok |
+| 09:21 | Session end: 77 writes across 12 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 41 reads | ~71239 tok |
+| 09:35 | Session end: 77 writes across 12 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 41 reads | ~71239 tok |
+| 09:39 | Session end: 77 writes across 12 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 42 reads | ~71239 tok |
+| 09:53 | Session end: 77 writes across 12 files (tim5.rs, usb_cdc_tcp.rs, nvic.rs, gui_equivalent_config.yaml, exact_live_config.yaml) | 44 reads | ~71239 tok |
+
+## Session: 2026-07-14 10:00
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 10:27 | Edited src/ext_devices/usb_cdc_tcp.rs | 4→8 lines | ~70 |
+| 10:27 | Edited src/ext_devices/usb_cdc_tcp.rs | 4→7 lines | ~67 |
+| 10:27 | Edited src/ext_devices/usb_cdc_tcp.rs | modified poll() | ~341 |
+| 10:28 | Edited src/ext_devices/usb_cdc_tcp.rs | modified is_some() | ~384 |
+| 10:28 | Edited src/ext_devices/usb_cdc_tcp.rs | modified receive_from_client() | ~458 |
+| 10:28 | Edited src/ext_devices/usb_cdc_tcp.rs | modified send_to_client() | ~442 |
+| 10:30 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/abandon_modes.py | — | ~578 |
+| 10:32 | Instrumented USB CDC bridge (rx/tx counters, heartbeat, FIN/RST disconnect logging); synthetic abandon-mode test PROVED silent-abandon-but-open sockets are undetectable and grace-period pins bridge to dead conn while rejecting live retry | src/ext_devices/usb_cdc_tcp.rs | root cause confirmed; awaiting real-TS run to classify abandon mode | ~9k |
+| 10:34 | Session end: 7 writes across 2 files (usb_cdc_tcp.rs, abandon_modes.py) | 2 reads | ~7958 tok |
+| 11:08 | Edited src/peripherals/otg_fs.rs | 3→5 lines | ~49 |
+| 11:08 | Edited src/peripherals/otg_fs.rs | 5→6 lines | ~65 |
+| 11:09 | Edited src/peripherals/otg_fs.rs | 6→7 lines | ~58 |
+| 11:09 | Edited src/peripherals/otg_fs.rs | modified advance_virtual_host() | ~42 |
+| 11:09 | Edited src/peripherals/otg_fs.rs | expanded (+6 lines) | ~105 |
+| 11:09 | Edited src/peripherals/otg_fs.rs | 7→8 lines | ~123 |
+| 11:09 | Edited src/peripherals/otg_fs.rs | modified interrupt_pending() | ~387 |
+| 11:09 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/432d2e68-e981-4da6-a522-9b21d7862bdc/scratchpad/enum_probe.py | — | ~263 |
+| 11:22 | Session end: 15 writes across 4 files (usb_cdc_tcp.rs, abandon_modes.py, otg_fs.rs, enum_probe.py) | 4 reads | ~21272 tok |
+| 11:30 | Created proteus_f7/epicefi_symbols.yaml | — | ~321 |
+| 11:20 | Symbol-matched boot trace via epicefi.bin+epicefi.elf (addr2line in WSL). Firmware never reaches usbStart (gintmsk=0, IRQ67 never dispatched); stuck in continuous adcStartConversionI/DMA2(IRQ60)/SVCall loop with all-zero ADC data. rusefi.bin PCs must be resolved against epicefi.bin (NOT rusefi.bin) -- 12-day build drift, proven by IRQ60 vector 0x20d124 vs epicefi Vector130 0x20cd0c. ADC IS modeled+ecu_io-fed but reads 0 with no ecu_io client on :29002. | src/peripherals/otg_fs.rs, src/ext_devices/usb_cdc_tcp.rs (instrumentation), proteus_f7/epicefi_symbols.yaml (temp) | root cause localized to firmware-side boot; leading hypothesis: zero/implausible ADC blocks boot before USB init | ~14k |
+| 11:35 | Session end: 16 writes across 5 files (usb_cdc_tcp.rs, abandon_modes.py, otg_fs.rs, enum_probe.py, epicefi_symbols.yaml) | 6 reads | ~27863 tok |
+| 12:03 | Edited src/peripherals/adc.rs | modified experiment() | ~158 |
+| 12:03 | Edited src/peripherals/otg_fs.rs | 1→6 lines | ~81 |
+| 12:12 | Edited src/peripherals/otg_fs.rs | modified poll() | ~223 |
+| 12:16 | Session end: 19 writes across 6 files (usb_cdc_tcp.rs, abandon_modes.py, otg_fs.rs, enum_probe.py, epicefi_symbols.yaml) | 7 reads | ~31999 tok |
+
+## Session: 2026-07-15 09:35
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 10:23 | Ran proteus_f7 300M instr (rusefi.bin + epicefi.bin): usbStart NEVER reached. PC samples all in slowAdcEndCB/adc_lld_stop_conversion/irqExitHook. Root cause: dma.rs raises DMA TC + IRQ instantly on stream enable; firmware has EFI_INTERNAL_SLOW_ADC_BACKGROUND=TRUE so slowAdcEndCB restarts conversion inside the ISR -> instant re-pend -> tail-chained IRQ60 storm starves all threads; slowAdcConversionCount frozen at 0. ADC 1650mV floor experiment irrelevant (wedge is timing, not values). | src/peripherals/dma.rs, scratch_run*.log | root cause found: DMA TC needs a delay | ~30k |
+| 10:36 | Edited src/peripherals/dma.rs | modified transfer_completion_fires_only_after_the_scheduled_delay() | ~468 |
+| 10:36 | Edited src/peripherals/dma.rs | expanded (+6 lines) | ~115 |
+| 10:36 | Edited src/peripherals/dma.rs | modified advance_to() | ~358 |
+| 10:37 | Edited src/peripherals/dma.rs | modified poll() | ~124 |
+| 10:37 | Edited src/peripherals/dma.rs | 8→9 lines | ~83 |
+| 10:37 | Edited src/peripherals/dma.rs | 6→7 lines | ~80 |
+| 10:37 | Edited src/peripherals/dma.rs | 3→4 lines | ~49 |
+| 10:39 | Edited src/peripherals/adc.rs | removed 6 lines | ~13 |
+| 10:41 | Implemented delayed DMA transfer-complete (TDD): complete_at deadlines resolved in Dma::poll(), 10k-instruction delay; reverted ADC 1650mV floor experiment. All 90 tests pass. VERIFIED: both epicefi.bin and rusefi.bin now reach usbStart at ~57M instructions (GINTMSK=0xc0303c08); slowAdcConversionCount increments. | src/peripherals/dma.rs, src/peripherals/adc.rs | fixed: boot wedge resolved, usbStart reached | ~15k |
+| 10:42 | Session end: 8 writes across 2 files (dma.rs, adc.rs) | 3 reads | ~11218 tok |
+| 11:22 | Session end: 8 writes across 2 files (dma.rs, adc.rs) | 5 reads | ~13455 tok |
+| 11:25 | Created docs/superpowers/specs/2026-07-15-proteus-harness-io-design.md | — | ~1398 |
+| 11:26 | Session end: 9 writes across 3 files (dma.rs, adc.rs, 2026-07-15-proteus-harness-io-design.md) | 5 reads | ~14953 tok |
+| 11:32 | Created docs/superpowers/plans/2026-07-15-proteus-harness-io.md | — | ~6866 |
+| 11:32 | Session end: 10 writes across 4 files (dma.rs, adc.rs, 2026-07-15-proteus-harness-io-design.md, 2026-07-15-proteus-harness-io.md) | 8 reads | ~27534 tok |
+| 11:34 | Created src/launcher/boards/mod.rs | — | ~83 |
+| 11:34 | Created src/launcher/boards/proteus_f7.rs | — | ~802 |
+| 11:35 | Edited src/launcher/mod.rs | 9→10 lines | ~43 |
+| 11:35 | Edited src/launcher/mod.rs | modified proteus_f7() | ~74 |
+| 11:35 | Edited src/launcher/mod.rs | — | ~0 |
+| 11:35 | Edited src/launcher/mod.rs | — | ~0 |
+| 11:35 | Edited src/launcher/mod.rs | — | ~0 |
+| 11:35 | Edited src/launcher/mod.rs | — | ~0 |
+| 11:35 | Edited src/launcher/mod.rs | — | ~0 |
+| 11:35 | Edited src/launcher/boards/proteus_f7.rs | 4→4 lines | ~40 |
+| 11:36 | Moved Proteus F7 board data into launcher boards module (pure refactor) | src/launcher/boards/{mod,proteus_f7}.rs, src/launcher/mod.rs | Baseline + after: launcher_profile 12/12 pass, emulator 90/90 pass, 9 pre-existing warnings | ~2800 |
