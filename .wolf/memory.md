@@ -747,3 +747,7 @@
 | 12:30 | Session end: 47 writes across 18 files (dma.rs, adc.rs, 2026-07-15-proteus-harness-io-design.md, 2026-07-15-proteus-harness-io.md, mod.rs) | 38 reads | ~70955 tok |
 | 12:33 | Edited docs/proteus-f7-ecu-io.md | 3→3 lines | ~42 |
 | 12:33 | Wrap-up: fixed doc sentinel list to all seven (hs4, vr1 added); re-review verdict Ready to merge | docs/proteus-f7-ecu-io.md | plan complete | ~1k |
+| 12:34 | Session end: 48 writes across 18 files (dma.rs, adc.rs, 2026-07-15-proteus-harness-io-design.md, 2026-07-15-proteus-harness-io.md, mod.rs) | 38 reads | ~71000 tok |
+| 12:37 | Created docs/external-io-interface.md | — | ~1713 |
+| 12:38 | Created docs/superpowers/specs/2026-07-15-external-io-interface-design.md | — | ~1918 |
+| 12:39 | Wrote external I/O interface reference + design doc (TCP contract for feeders/simulators/tools) | docs/external-io-interface.md, docs/superpowers/specs/2026-07-15-external-io-interface-design.md | created | ~4k |

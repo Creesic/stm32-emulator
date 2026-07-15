@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-07-15T16:23:19.038Z
-> Files: 123 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-15T16:38:43.315Z
+> Files: 126 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/2ddd4150-2756-4300-8896-52f47e9b74d4/scratchpad/
 
@@ -61,6 +61,7 @@
 
 ## .superpowers/sdd/
 
+- `final-fixes-report.md` — Final Review Fixes Report — Proteus F7 Harness I/O Branch (~1730 tok)
 - `final-review-fixes-report.md` — Final Review Fixes Report — Proteus F7 ECU I/O (6 Minor Findings) (~2590 tok)
 - `task-1-report.md` — Task 1 Report: Move Proteus F7 board data into launcher boards module (~1095 tok)
 - `task-2-report.md` — Task 2 Report: Grow launcher tables to full harness map (TDD) (~1183 tok)
@@ -78,7 +79,9 @@
 
 ## docs/
 
-- `proteus-f7-ecu-io.md` — Proteus F7 ECU I/O (~1725 tok)
+- `external-io-interface.md` — External I/O Interface (~1606 tok)
+- `external-io-interface.md` — External I/O Interface: TCP contract (29000 CDC / 29002 ecu_io) for outside programs (~1500 tok)
+- `proteus-f7-ecu-io.md` — Proteus F7 ECU I/O (~1732 tok)
 - `proteus-f7-usb.md` — Proteus F7 Virtual USB CDC (~1104 tok)
 
 ## docs/superpowers/plans/
@@ -96,7 +99,9 @@
 - `2026-07-10-proteus-f7-bringup-design.md` — Approved staged boot and hardware-modeling design (~650 tok)
 - `2026-07-11-proteus-f7-ecu-io-design.md` — Proteus F7 ECU I/O Design (~2237 tok)
 - `2026-07-13-launcher-process-status-design.md` — Launcher Process Status Indicator Design (~1327 tok)
+- `2026-07-15-external-io-interface-design.md` — External I/O Interface Design (~1798 tok)
 - `2026-07-15-proteus-harness-io-design.md` — Proteus F7 Full Harness I/O Routing Design (~1600 tok)
+- `2026-07-15-external-io-interface-design.md` — External I/O Interface Design (rationale behind external-io-interface.md) (~1500 tok)
 - `2026-07-15-proteus-harness-io-design.md` — Proteus F7 Full Harness I/O Routing Design (~1310 tok)
 
 ## monox/
