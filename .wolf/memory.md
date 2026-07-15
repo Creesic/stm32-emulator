@@ -367,6 +367,12 @@
 | 00:28 | Created src/peripherals/tim5.rs | — | ~1099 |
 | 00:29 | Edited src/peripherals/tim5.rs | modified cnt_reads_zero_by_default_while_disabled() | ~358 |
 | 00:29 | Edited src/peripherals/mod.rs | added 1 import(s) | ~88 |
+
+## Session: 2026-07-15
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 15:33 | Task 3: Replaced ecu_io block with full 56-signal harness map; updated verify_boot.ps1 config contract lines | proteus_f7/config.yaml, proteus_f7/verify_boot.ps1 | Config deserializes and boot harness verification passes | ~400 |
 | 00:29 | Edited src/peripherals/mod.rs | 1→2 lines | ~23 |
 | 00:30 | Session end: 87 writes across 28 files (otg_fs.rs, usb_trace_notes.md, ts_query.py, proteus-f7-usb.md, 2026-07-10-proteus-f7-virtual-usb.md) | 74 reads | ~156837 tok |
 | 00:35 | Session end: 87 writes across 28 files (otg_fs.rs, usb_trace_notes.md, ts_query.py, proteus-f7-usb.md, 2026-07-10-proteus-f7-virtual-usb.md) | 74 reads | ~156837 tok |
@@ -717,3 +723,6 @@
 | 11:41 | Edited tests/launcher_profile.rs | modified proteus_f7_yaml_includes_the_usb_cdc_tcp_and_ecu_io_devices() | ~408 |
 | 11:42 | Edited src/launcher/boards/proteus_f7.rs | expanded (+62 lines) | ~1106 |
 | 11:42 | Task 2 TDD: 8→40 pins, 5→16 ADC channels; all 12 launcher_profile + 90 emulator + 3 launcher_state + 2 launcher_workspace tests pass | tests/launcher_profile.rs, src/launcher/boards/proteus_f7.rs | Full harness map in tables ready for YAML gen | ~1500 |
+| 11:44 | Created .superpowers/sdd/task-2-report.md | — | ~1262 |
+| 11:48 | Edited proteus_f7/config.yaml | expanded (+50 lines) | ~882 |
+| 11:48 | Edited proteus_f7/verify_boot.ps1 | 3→7 lines | ~37 |

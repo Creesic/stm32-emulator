@@ -24,7 +24,11 @@ foreach ($line in @(
     'max_buffered_bytes: 65536',
     'ecu_io:',
     'listen: 127.0.0.1:29002',
-    'name: crank'
+    'name: din1',
+    'name: ls16',
+    'name: ign12',
+    'name: av11',
+    'name: vbatt'
 )) {
     if (-not $config.Contains($line)) {
         throw "Configuration contract is missing: $line"

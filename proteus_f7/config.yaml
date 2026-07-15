@@ -43,14 +43,64 @@ devices:
       max_buffered_bytes: 65536
   ecu_io:
     - listen: 127.0.0.1:29002
+      # Full Proteus harness map, named by connector position (see
+      # docs/superpowers/specs/2026-07-15-proteus-harness-io-design.md;
+      # source: proteus_meta.h). din5/din6 are PE13/PE15 by design.
       pins:
-        - { name: crank, pin: PC6, direction: input }
-        - { name: cam,   pin: PE11, direction: input }
-        - { name: inj1,  pin: PD7, direction: output }
-        - { name: ign1,  pin: PD4, direction: output }
+        - { name: vr1,   pin: PE7,  direction: input }
+        - { name: vr2,   pin: PE8,  direction: input }
+        - { name: din1,  pin: PC6,  direction: input }
+        - { name: din2,  pin: PE11, direction: input }
+        - { name: din3,  pin: PE12, direction: input }
+        - { name: din4,  pin: PE14, direction: input }
+        - { name: din5,  pin: PE13, direction: input }
+        - { name: din6,  pin: PE15, direction: input }
+        - { name: ls1,   pin: PD7,  direction: output }
+        - { name: ls2,   pin: PG9,  direction: output }
+        - { name: ls3,   pin: PG10, direction: output }
+        - { name: ls4,   pin: PG11, direction: output }
+        - { name: ls5,   pin: PG12, direction: output }
+        - { name: ls6,   pin: PG13, direction: output }
+        - { name: ls7,   pin: PG14, direction: output }
+        - { name: ls8,   pin: PB4,  direction: output }
+        - { name: ls9,   pin: PB5,  direction: output }
+        - { name: ls10,  pin: PB6,  direction: output }
+        - { name: ls11,  pin: PB7,  direction: output }
+        - { name: ls12,  pin: PB8,  direction: output }
+        - { name: ls13,  pin: PB9,  direction: output }
+        - { name: ls14,  pin: PE0,  direction: output }
+        - { name: ls15,  pin: PE1,  direction: output }
+        - { name: ls16,  pin: PE2,  direction: output }
+        - { name: hs1,   pin: PA9,  direction: output }
+        - { name: hs2,   pin: PA8,  direction: output }
+        - { name: hs3,   pin: PD15, direction: output }
+        - { name: hs4,   pin: PD14, direction: output }
+        - { name: ign1,  pin: PD4,  direction: output }
+        - { name: ign2,  pin: PD3,  direction: output }
+        - { name: ign3,  pin: PC9,  direction: output }
+        - { name: ign4,  pin: PC8,  direction: output }
+        - { name: ign5,  pin: PC7,  direction: output }
+        - { name: ign6,  pin: PG8,  direction: output }
+        - { name: ign7,  pin: PG7,  direction: output }
+        - { name: ign8,  pin: PG6,  direction: output }
+        - { name: ign9,  pin: PG5,  direction: output }
+        - { name: ign10, pin: PG4,  direction: output }
+        - { name: ign11, pin: PG3,  direction: output }
+        - { name: ign12, pin: PG2,  direction: output }
       adc_channels:
-        - { name: map, pin: PC0 }
-        - { name: tps, pin: PC1 }
-        - { name: clt, pin: PB0 }
-        - { name: iat, pin: PC5 }
+        - { name: at1,   pin: PC4 }
+        - { name: at2,   pin: PC5 }
+        - { name: at3,   pin: PB0 }
+        - { name: at4,   pin: PB1 }
+        - { name: av1,   pin: PC0 }
+        - { name: av2,   pin: PC1 }
+        - { name: av3,   pin: PC2 }
+        - { name: av4,   pin: PC3 }
+        - { name: av5,   pin: PA0 }
+        - { name: av6,   pin: PA1 }
+        - { name: av7,   pin: PA2 }
+        - { name: av8,   pin: PA3 }
+        - { name: av9,   pin: PA4 }
+        - { name: av10,  pin: PA5 }
+        - { name: av11,  pin: PA6 }
         - { name: vbatt, pin: PA7 }
