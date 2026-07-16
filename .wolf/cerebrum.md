@@ -51,10 +51,15 @@
 - **TS-protocol observability trick (2026-07-16):** the firmware console is fully drivable over :29000 with 5 frame types — `S` hello, `E`+text (execute console command; ack is unconditional, check with `G`), `G` (fetch console text output), `O` (whole output-channel blob; RPM=U16@4, totalTriggerErrorCounter=U32@172, trgsynchronizationCounter=U32@2940, trgvvtToothDurations0=U32@2944, trgtriggerSyncGapRatio=F32@2968 per generated epicefi_proteus_f7.ini). Frame = BE u16 len + payload + BE u32 CRC32. Boot console backlog survives until first `G`.
 - **Gotcha:** `register_core_peripherals()` (SysTick/SCB/DWT, none SVD-declared) pushes directly into the sorted `peripherals` Vec without sorting itself — `get_peripheral` binary-searches it. New entries MUST be pushed in ascending start-address order or lookups for entries after the out-of-order one silently break (caught by `core_scb_model_covers_interrupt_control_register` failing when DWT was appended after SCB despite having a lower address).
 
+- **Trigger wheel shipped (2026-07-16, commit 2522213):** ecu_io now has an optional `trigger_wheel` (signal `trigger_rpm`, drives `din1`/PC6, 60-2) generating the crank waveform on the instruction clock; AngeES's EcuIoClient (commit 6ff1db8 there) sends `trigger_rpm=<N>` from Engine::getRpm(). Live-verified: trigger_rpm=1200 -> RPM 1199-1200 in TS output channels, zero trigger errors, self-stim OFF. Instant large RPM steps transiently trip the decoder's plausibility check (13 errors on a 1200->3500 step) -- expected, real engines ramp.
+
 ## Do-Not-Repeat
 
 <!-- Mistakes made and corrected. Each entry prevents the same mistake recurring. -->
 <!-- Format: [YYYY-MM-DD] Description of what went wrong and what to do instead. -->
+
+
+- [2026-07-16] Built binaries never reached the user: all cargo builds go to CARGO_TARGET_DIR=%LOCALAPPDATA%\stm32-emulator-proteus-f7-target (per the repo's CMake-4 convention), but the launcher the user runs lives at repo-local `targetelease\` and spawns `targetelease\stm32-emulator.exe`. The user "restarted" and still ran the old binary. After building, DEPLOY: copy stm32-emulator.exe + stm32-launcher.exe from the LOCALAPPDATA target dir to `targetelease\` (kill running instances first -- Windows locks running exes).
 
 - [2026-07-16] Assumed "the engine simulator" meant `engine-sim` and built a whole diagnosis on its epicfwsim bridge; the user's active simulator is **AngeES** (`C:\Users\Tera\Documents\GitHub\AngeES`). When the user says "the engine simulator", it's AngeES; check its git log / .wolf files for what it actually speaks before diagnosing.
 - [2026-07-16] Launched a second emulator instance without checking for a running one — the user's launcher-spawned instance already held :29000/:29002, and my TS commands landed in *their* live session (harmless here only because the old binary's init stall meant console commands were unregistered). Always check `Get-Process stm32-emulator` / port owners first, and run experiments on alternate ports (29010/29012 configs in scratchpad).

@@ -796,3 +796,30 @@
 | 13:47 | Edited src/emulator.rs | modified thumb() | ~162 |
 | 13:47 | Edited src/emulator.rs | modified exc_return_pop_from_a_thread_mode_block_aborts_with_pc_in_the_magic_range() | ~560 |
 | 16:40 | bug-146 root-caused and FIXED: Unicorn stale-hflags (IPSR/XPSR writes never rebuild cached HANDLER tb-flag; gen_bx_excret magic check is translation-gated) -> EXC_RETURN pops from thread-mode TBs land as prefetch aborts. intr_hook now routes intno=3-with-magic-PC through return_from_interrupt. 2 new Unicorn-semantics regressions; 101/101 tests. Live: 20s din1 storm clean, decoder validates external edges (correct "too many teeth" on gapless wave). Committed c2ff494 + 5 earlier commits (can.rs f898d67, tim5 74f8484, poll mask 008fb42, STIR 2c1baa0, wolf docs 1d1eda6). | src/emulator.rs, .wolf/* | fixed and verified | ~120k |
+| 13:52 | Session end: 3 writes across 1 files (emulator.rs) | 1 reads | ~9450 tok |
+
+## Session: 2026-07-16 13:55
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 14:56 | Created docs/superpowers/specs/2026-07-16-ecu-io-trigger-wheel-design.md | — | ~1371 |
+| 14:57 | Edited src/ext_devices/ecu_io.rs | modified new() | ~766 |
+| 14:57 | Edited src/ext_devices/ecu_io.rs | 4→4 lines | ~62 |
+| 14:58 | Edited src/ext_devices/ecu_io.rs | 6→7 lines | ~92 |
+| 14:58 | Edited src/ext_devices/ecu_io.rs | modified advance_trigger_wheel() | ~407 |
+| 14:58 | Edited src/ext_devices/mod.rs | modified poll() | ~106 |
+| 14:58 | Edited src/ext_devices/ecu_io.rs | modified wheel_60_2() | ~1144 |
+| 14:59 | Edited src/ext_devices/ecu_io.rs | 5→6 lines | ~50 |
+| 15:00 | Edited src/peripherals/adc.rs | 4→5 lines | ~44 |
+| 15:01 | Edited src/launcher/mod.rs | expanded (+10 lines) | ~133 |
+| 15:01 | Edited src/launcher/boards/proteus_f7.rs | 4→4 lines | ~45 |
+| 15:01 | Edited src/launcher/boards/proteus_f7.rs | expanded (+10 lines) | ~161 |
+| 15:01 | Edited proteus_f7/config.yaml | expanded (+9 lines) | ~127 |
+| 15:02 | Edited tests/launcher_profile.rs | modified adc_channels_from() | ~262 |
+| 15:02 | Edited tests/launcher_profile.rs | modified proteus_f7_yaml_includes_the_trigger_wheel_on_the_stock_crank_input() | ~239 |
+| 15:05 | Edited docs/external-io-interface.md | 6→9 lines | ~158 |
+| 15:05 | Edited docs/external-io-interface.md | expanded (+33 lines) | ~569 |
+| 15:09 | Created ../AngeES/include/ecu_io_client.h | — | ~831 |
+| 15:10 | Created ../AngeES/src/ecu_io_client.cpp | — | ~1527 |
+| 15:11 | Created ../AngeES/test/ecu_io_client_tests.cpp | — | ~705 |
+| 15:07 | Shipped ecu_io trigger-wheel generator (spec + TDD, commits 61d0xxx/2522213): trigger_rpm=1200 over :29002 -> RPM=1200 in TS channels, 0 trigErr, no self-stim; updated AngeES EcuIoClient to send RPM (AngeES commit 6ff1db8, 7/7 tests); found+fixed "still no RPM" cause: user launcher runs repo target/release binaries, builds went to LOCALAPPDATA target -- deployed both exes | src/ext_devices/ecu_io.rs, src/launcher/{mod.rs,boards/proteus_f7.rs}, proteus_f7/config.yaml, tests/launcher_profile.rs, docs/external-io-interface.md, AngeES | feature verified live end-to-end | ~90k |
