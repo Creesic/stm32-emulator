@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-07-15T16:38:43.315Z
-> Files: 126 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-16T17:27:31.529Z
+> Files: 135 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/2ddd4150-2756-4300-8896-52f47e9b74d4/scratchpad/
 
@@ -39,6 +39,14 @@
 - `symlookup.py` — find (~289 tok)
 - `ts_proxy.py` — log, relay, handle_client (~671 tok)
 - `ts_query.py` (~169 tok)
+
+## ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/
+
+- `crank_experiment.py` — Live crank-path experiment against the stm32-emulator running epicefi proteus_f7. (~1434 tok)
+- `crank_experiment2.py` — Round 2: console-text visibility + tooth-level counters. (~1038 tok)
+- `edges_20s.py` — Wait for firmware TS channel, then toggle din1 at 40Hz for 20s. (~302 tok)
+- `one_edge.py` — Wait for firmware TS channel, then feed exactly one din1 rising edge. (~274 tok)
+- `resolve_pcs.sh` (~103 tok)
 
 ## ./
 
@@ -100,8 +108,8 @@
 - `2026-07-11-proteus-f7-ecu-io-design.md` — Proteus F7 ECU I/O Design (~2237 tok)
 - `2026-07-13-launcher-process-status-design.md` — Launcher Process Status Indicator Design (~1327 tok)
 - `2026-07-15-external-io-interface-design.md` — External I/O Interface Design (~1798 tok)
-- `2026-07-15-proteus-harness-io-design.md` — Proteus F7 Full Harness I/O Routing Design (~1600 tok)
 - `2026-07-15-external-io-interface-design.md` — External I/O Interface Design (rationale behind external-io-interface.md) (~1500 tok)
+- `2026-07-15-proteus-harness-io-design.md` — Proteus F7 Full Harness I/O Routing Design (~1600 tok)
 - `2026-07-15-proteus-harness-io-design.md` — Proteus F7 Full Harness I/O Routing Design (~1310 tok)
 
 ## monox/
@@ -151,7 +159,7 @@
 
 - `image.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~624 tok)
 - `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~611 tok)
-- `sdl_engine.rs` — How often should we call pump_events() in terms of number of instructions emulated (~668 tok)
+- `sdl_engine.rs` — How often we run the poll work in the code hook (SDL pump, ext-device TCP, (~787 tok)
 - `sdl.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1158 tok)
 
 ## src/launcher/
@@ -169,6 +177,8 @@
 ## src/peripherals/
 
 - `adc.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~2512 tok)
+- `can.rs` — Minimal bxCAN readiness model: MSR.INAK/SLAK mirror MCR.INRQ/SLEEP, TSR mailboxes always empty (~700 tok)
+- `can.rs` — Minimal bxCAN readiness model (trace-constrained, like `Pwr`/`Rtc`/`Flash`). (~788 tok)
 - `dma.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~4540 tok)
 - `dwt.rs` — ARM CoreSight DWT unit. Firmware uses DWT->CYCCNT for microsecond-precision (~462 tok)
 - `exti.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1930 tok)
@@ -176,8 +186,8 @@
 - `fsmc.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1537 tok)
 - `gpio.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~2184 tok)
 - `i2c.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~386 tok)
-- `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~5164 tok)
-- `nvic.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~7634 tok)
+- `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~5285 tok)
+- `nvic.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~8023 tok)
 - `otg_fs.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~12464 tok)
 - `pwr.rs` — Minimal PWR CR1/CSR1 voltage-scaling readiness model (~250 tok)
 - `rcc.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~256 tok)
@@ -186,7 +196,7 @@
 - `sw_spi.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1032 tok)
 - `systick.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~512 tok)
 - `tim11.rs` — TIM11 capture-ready status model used by Proteus F7 startup (~300 tok)
-- `tim5.rs` — TIM5's global interrupt, fixed at this NVIC position across the whole (~2414 tok)
+- `tim5.rs` — TIM5's global interrupt, fixed at this NVIC position across the whole (~3016 tok)
 - `usart.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~615 tok)
 
 ## tests/

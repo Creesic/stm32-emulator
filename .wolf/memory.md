@@ -751,3 +751,35 @@
 | 12:37 | Created docs/external-io-interface.md | — | ~1713 |
 | 12:38 | Created docs/superpowers/specs/2026-07-15-external-io-interface-design.md | — | ~1918 |
 | 12:39 | Wrote external I/O interface reference + design doc (TCP contract for feeders/simulators/tools) | docs/external-io-interface.md, docs/superpowers/specs/2026-07-15-external-io-interface-design.md | created | ~4k |
+| 12:40 | Session end: 50 writes across 20 files (dma.rs, adc.rs, 2026-07-15-proteus-harness-io-design.md, 2026-07-15-proteus-harness-io.md, mod.rs) | 38 reads | ~75203 tok |
+
+## Session: 2026-07-16 11:05
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 12:05 | Diagnosed user-reported crank-sensor-dead-in-TunerStudio: engine-sim bridge targets epicfwsim :29001 TS-binary, never connects to this emulator (29000/29002 only); no trigger edges ever fed. Logged bug-141, cerebrum learning; recommended firmware self_stimulation path + future paced trigger generator | .wolf/buglog.json, .wolf/cerebrum.md, engine-sim/src/rusefi_sim_bridge.cpp (read), proteus_f7/config.yaml (read) | diagnosis only, no code changed | ~55k |
+| 11:39 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/crank_experiment.py | — | ~1409 |
+| 11:41 | Edited ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/crank_experiment.py | 3→3 lines | ~39 |
+| 11:41 | Edited ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/crank_experiment.py | modified range() | ~24 |
+| 11:47 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/crank_experiment2.py | — | ~1038 |
+| 11:53 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/resolve_pcs.sh | — | ~103 |
+| 12:05 | Created src/peripherals/can.rs | — | ~788 |
+| 12:05 | Edited src/peripherals/mod.rs | 3→4 lines | ~14 |
+| 12:06 | Edited src/peripherals/mod.rs | added 1 import(s) | ~13 |
+| 12:06 | Edited src/peripherals/mod.rs | 2→3 lines | ~33 |
+| 12:10 | Edited src/peripherals/tim5.rs | modified new() | ~586 |
+| 12:10 | Edited src/peripherals/tim5.rs | 3→4 lines | ~80 |
+| 12:10 | Edited src/peripherals/tim5.rs | modified cnt_advances_one_microsecond_per_216_instructions() | ~239 |
+| 12:14 | Edited src/peripherals/tim5.rs | 9→13 lines | ~246 |
+| 12:14 | Edited src/peripherals/tim5.rs | modified ticks_from_instructions() | ~314 |
+| 12:14 | Edited src/peripherals/tim5.rs | modified cnt_advances_one_tick_per_54_instructions() | ~258 |
+| 12:19 | Edited src/framebuffers/sdl_engine.rs | expanded (+9 lines) | ~211 |
+| 12:25 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/one_edge.py | — | ~274 |
+| 12:28 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/edges_20s.py | — | ~302 |
+| 12:34 | Edited src/peripherals/nvic.rs | modified read() | ~374 |
+| 12:34 | Edited src/peripherals/mod.rs | modified new() | ~173 |
+| 12:34 | Edited src/peripherals/nvic.rs | modified test_parts() | ~235 |
+| 15:10 | Root-caused and fixed the crank-dead-in-TunerStudio chain (user corrected sim = AngeES): CAN INAK init stall (new can.rs), TIM5 4MHz rate (54 instr/tick), PUMP_EVENT_INST_INTERVAL mask fix (1023), NVIC STIR model. Live-verified: self_stimulation -> RPM=1200/gap=1.000/0 trigErr in TS output channels; 5 external din1 edges move gap ratio (decoder receives real edges). 99/99 tests. OPEN bug-146: sustained edge feed wedges emulator (EXTI ISR pop prefetch abort, mid-thread dispatch). | src/peripherals/{can.rs,tim5.rs,nvic.rs,mod.rs}, src/framebuffers/sdl_engine.rs, .wolf/* | 4 emulator bugs fixed, 1 open, sim-side confirmed correct | ~350k |
+| 12:40 | Session end: 21 writes across 10 files (crank_experiment.py, crank_experiment2.py, resolve_pcs.sh, can.rs, mod.rs) | 13 reads | ~29042 tok |
+| 13:26 | Edited src/peripherals/mod.rs | removed 9 lines | ~2 |
+| 13:27 | Edited src/peripherals/mod.rs | modified new() | ~173 |

@@ -2462,6 +2462,212 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-07-15T16:25:00.000Z"
+    },
+    {
+      "id": "bug-140",
+      "timestamp": "2026-07-15T16:33:19.204Z",
+      "error_message": "Incorrect value in code",
+      "file": "docs/proteus-f7-ecu-io.md",
+      "root_cause": "Had `name: av11`",
+      "fix": "Changed to `name: hs4`",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-15T16:33:19.204Z"
+    },
+    {
+      "id": "bug-141",
+      "timestamp": "2026-07-16T12:00:00.000Z",
+      "error_message": "User reports the crankshaft position sensor does not function or report anything in TunerStudio after hooking the engine simulator (engine-sim) to the stm32 emulator running epicefi firmware.",
+      "file": "engine-sim/src/rusefi_sim_bridge.cpp, proteus_f7/config.yaml, src/ext_devices/ecu_io.rs",
+      "root_cause": "Integration mismatch, not a bug in either component: engine-sim's RusefiSimBridge was built for epicfwsim (the POSIX firmware simulator) -- it connects to hardcoded 127.0.0.1:29001 and speaks TS-binary EXECUTE console commands (set_sensor_mock, set triggerSimulatorRpm). The stm32 emulator listens only on 29000 (USB CDC/TS, single-client, owned by TunerStudio) and 29002 (ecu_io plain-text name=value). Nothing listens on 29001, so the bridge never connects (silently retries by design) and zero trigger edges ever reach the firmware -- TunerStudio correctly shows no crank activity. Even repointed, the protocols are incompatible, and docs/external-io-interface.md documents that a timed crank tooth waveform cannot currently be delivered over ecu_io (no real-time pacing; check_digital_edges level-samples at poll time so batched toggles collapse into no edge).",
+      "fix": "Diagnosis only, no code changed. Workable today: firmware's built-in trigger stimulator (EFI_EMULATE_POSITION_SENSORS is compiled in): console 'set triggerSimulatorRpm <N>' then 'enable self_stimulation' over the :29000 TS channel, or the TS_TRIGGER_STIMULATOR_ENABLE bench command. Real engine-sim integration needs new feature work: an instruction-clock-paced trigger wheel generator inside the emulator, commanded via ecu_io (send an RPM, not edges), per the interface doc's Future Work. CORRECTED 2026-07-16 by the user: the active engine simulator is AngeES (C:/Users/Tera/Documents/GitHub/AngeES), whose EcuIoClient DOES speak the ecu_io protocol correctly (60-2 din1 edges to :29002). The engine-sim analysis in this entry applies only to that repo's older epicfwsim bridge. The real blockers were emulator-side: see bug-142..bug-146.",
+      "tags": [
+        "engine-sim",
+        "ecu_io",
+        "trigger",
+        "crank",
+        "integration",
+        "tunerstudio"
+      ],
+      "related_bugs": [
+        "bug-139"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T12:00:00.000Z"
+    },
+    {
+      "id": "bug-142",
+      "timestamp": "2026-07-16T15:41:16.797Z",
+      "error_message": "Significant refactor of ",
+      "file": "../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/crank_experiment.py",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 3→3 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T15:41:16.797Z"
+    },
+    {
+      "id": "bug-143",
+      "timestamp": "2026-07-16T15:41:25.812Z",
+      "error_message": "Incorrect value in code",
+      "file": "../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/crank_experiment.py",
+      "root_cause": "Had \"A+{(i + 1) * 6}s\"",
+      "fix": "Changed to \"A+{(i + 1) * 10}s\"",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T15:41:25.812Z"
+    },
+    {
+      "id": "bug-144",
+      "timestamp": "2026-07-16T16:06:10.175Z",
+      "error_message": "Wrong reference: I2c should be Can",
+      "file": "src/peripherals/mod.rs",
+      "root_cause": "Used \"I2c\" instead of \"Can\"",
+      "fix": "Changed I2c → Can",
+      "tags": [
+        "auto-detected",
+        "wrong-reference",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T16:06:10.175Z"
+    },
+    {
+      "id": "bug-145",
+      "timestamp": "2026-07-16T16:10:08.947Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/peripherals/tim5.rs",
+      "root_cause": "5 lines replaced/restructured",
+      "fix": "Rewrote 46→62 lines (5 removed) | Also: // CNT reads as (current instruction count + offse; // set), mirroring Dwt's CYCCNT model; held_cnt is | Also: /// rusEFI clocks TIM5 to count microseconds, so i; /// per 216 instructions to stay consistent with S",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 3,
+      "last_seen": "2026-07-16T16:14:17.569Z"
+    },
+    {
+      "id": "bug-142",
+      "timestamp": "2026-07-16T13:30:00.000Z",
+      "error_message": "rusEFI init thread parks forever inside initCan(): ChibiOS can_lld_start writes CAN1.MCR=INRQ then sleeps 1 tick at a time waiting for MSR.INAK, which the unmodeled generic CAN peripheral never sets. Everything after initCan() in initHardware() never runs: trigger-input EXTI setup, console command registration ('set'/'enable' reported unknown command), trigger emulator, 'initHardware() OK!'. This (not AngeES or ecu_io) was the primary reason the crank sensor showed nothing in TunerStudio.",
+      "file": "src/peripherals/can.rs (new), src/peripherals/mod.rs",
+      "root_cause": "No CAN model: MSR read as constant 0 from the SVD debug peripheral, so the INAK init-mode handshake in hal_can_lld.c:704-706 never completed. Evidence: -vvv trace shows pc=0x00277788 (can_lld_start, addr2line vs epicefi.elf) reading CAN1.MSR=0 exactly once per SysTick millisecond forever.",
+      "fix": "Added minimal bxCAN readiness model Can (pattern 'CAN*'): MSR.INAK/SLAK mirror MCR.INRQ/SLEEP instantly; TSR reads TME0..2 set so canTransmit never wedges a thread. 5 unit tests.",
+      "tags": [
+        "can",
+        "chibios",
+        "init-stall",
+        "proteus",
+        "trigger"
+      ],
+      "related_bugs": [
+        "bug-141",
+        "bug-018"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T13:30:00.000Z"
+    },
+    {
+      "id": "bug-143",
+      "timestamp": "2026-07-16T14:00:00.000Z",
+      "error_message": "After the CAN fix, firmware repeatedly logs 'CRITICAL error: gap in time: mostRecentMs 3215mS, now=5898mS' and eventually halts; self-stimulated trigger never syncs.",
+      "file": "src/peripherals/tim5.rs",
+      "root_cause": "TIM5 CNT advanced 1 per instruction while SysTick's 1ms is 216,000 instructions; rusEFI clocks TIM5 (its NT timebase) at SCHEDULER_TIMER_FREQ = US_TO_NT_MULTIPLIER(4) MHz (port_mpu_util.h), so the NT clock ran 54x faster than the OS clock and tripped the time-linearity watchdog. An intermediate 1-per-216 guess (assuming 1 MHz) ran 4x slow and failed validateHardwareTimer ('hwTimer not alive': 10ms test callback arrived at 40 OS-ms).",
+      "fix": "CNT now advances once per 54 instructions (216MHz core / 4MHz timer), scaled in u64 before truncating so CNT wraps at 2^32 ticks not 2^32 instructions. Two unit tests pin the rate and the wrap behavior.",
+      "tags": [
+        "tim5",
+        "timebase",
+        "clock-skew",
+        "rusefi",
+        "trigger"
+      ],
+      "related_bugs": [
+        "bug-142"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T14:00:00.000Z"
+    },
+    {
+      "id": "bug-144",
+      "timestamp": "2026-07-16T14:20:00.000Z",
+      "error_message": "Self-stimulated 60-2 teeth reach the decoder but trgtriggerSyncGapRatio wanders 0.5-2.0 and sync never locks.",
+      "file": "src/framebuffers/sdl_engine.rs",
+      "root_cause": "PUMP_EVENT_INST_INTERVAL=100_000 was used as a bitwise AND mask ('n & 100_000 == 0'), not a modulus: polls fired on ~1/64 of instructions in bursts with dead zones up to ~98k instructions (~455us firmware time), so TIM5 compare matches (all rusEFI scheduling, incl. trigger emulator teeth at 417us half-slots) carried enormous jitter.",
+      "fix": "Changed the constant to 1023: uniform poll every 1024 instructions (~4.7us firmware time), cheaper on average than the old burst pattern. With this, self-stim syncs instantly: RPM=1200 exact, gap=1.000, trigErr=0.",
+      "tags": [
+        "polling",
+        "jitter",
+        "tim5",
+        "trigger",
+        "bitmask"
+      ],
+      "related_bugs": [
+        "bug-143"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T14:20:00.000Z"
+    },
+    {
+      "id": "bug-145",
+      "timestamp": "2026-07-16T14:40:00.000Z",
+      "error_message": "External din1 edges fire the EXTI ISR but never reach the trigger decoder: handleExtiIsr queues the edge then writes NVIC->STIR (0xE000EF00) to chain the deferred-processing interrupt (I2C1_EV vector); the write landed in unmapped space (trace: 'peri=????') so the deferred IRQ never fired and edges piled up in the firmware's 32-entry queue.",
+      "file": "src/peripherals/nvic.rs, src/peripherals/mod.rs",
+      "root_cause": "NVIC STIR is outside both the SVD-declared NVIC block and the ISER-based core registration, and was never modeled.",
+      "fix": "Added NvicStir peripheral at 0xE000EF00: write pends IRQ (value & 0x1ff) via Nvic::set_intr_pending. Verified live: five slow din1 edges move trgtriggerSyncGapRatio 0.0 -> 1.025 (decoder timing real external teeth).",
+      "tags": [
+        "nvic",
+        "stir",
+        "exti",
+        "trigger",
+        "epicefi"
+      ],
+      "related_bugs": [
+        "bug-142",
+        "bug-144"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T14:40:00.000Z"
+    },
+    {
+      "id": "bug-146",
+      "timestamp": "2026-07-16T15:00:00.000Z",
+      "error_message": "OPEN: sustained external din1 edge feed (40Hz toggles for ~1s+) wedges the emulator: prefetch abort (Unicorn intno=3) at the EXTI ISR's final 'pop {r3,r4,r5,pc}' (handleExtiIsr, digital_input_exti.cpp:213), sp=0x20021000, xpsr IPSR=23, lr=0xffffffed; intr_hook then spams ERROR forever at frozen clk.",
+      "file": "src/peripherals/nvic.rs, src/emulator.rs",
+      "root_cause": "NOT root-caused. Instruction-for-instruction identical ISR executions succeed when dispatch happens at the WFI idle boundary but this failure appears when irq=23 is dispatched mid-thread (pc in perfEventImpl) with irq=60/67 pending simultaneously; the popped EXC_RETURN slot reads garbage, implying the handler stack or entry state was corrupted. Suspected: mid-translation-block PC-write dispatch semantics (same class as the documented IT-block dispatch hazard in note_fetched_instruction) or a multi-pending entry/return interaction. Full -vvv crash trace captured (scratchpad emu_crash2.log, first ERROR at line 583463) with symbol-matched epicefi.bin.",
+      "fix": "Not fixed; needs a dedicated NVIC forensics session. Does not affect the firmware's own trigger stimulator (self_stimulation), which is stable for minutes under full interrupt load.",
+      "tags": [
+        "nvic",
+        "exti",
+        "crash",
+        "open",
+        "unicorn",
+        "prefetch-abort"
+      ],
+      "related_bugs": [
+        "bug-145",
+        "bug-082",
+        "bug-077"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T15:00:00.000Z"
     }
   ]
 }
