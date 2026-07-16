@@ -28,6 +28,17 @@ fn thumb(pc: u64) -> u64 {
     pc | 1
 }
 
+/// True when a fetch address can only be an EXC_RETURN magic value
+/// (0xFFFFFFE1..=0xFFFFFFFD, i.e. an exception-return branch target).
+/// Nothing is ever mapped in the top page, so a prefetch abort there is
+/// an exception return whose branch ran in a translation block that was
+/// compiled without the magic-address check -- see the intr_hook's
+/// intno=3 arm below. Masked (not exact-matched) so both the raw magic
+/// value and its Thumb-bit-cleared fetch address qualify.
+fn is_exception_return_pc(pc: u32) -> bool {
+    pc & 0xFFFF_FF00 == 0xFFFF_FF00
+}
+
 // PC + instruction size
 pub static mut LAST_INSTRUCTION: (u32, u8) = (0,0);
 pub static NUM_INSTRUCTIONS: AtomicU64 = AtomicU64::new(0);
@@ -195,15 +206,37 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
                     p.nvic.borrow_mut().enter_svcall(&sys, vector_table_addr);
                 }
                 3 => {
-                    let xpsr = uc.reg_read(RegisterARM::XPSR).unwrap_or(0);
-                    let lr = uc.reg_read(RegisterARM::LR).unwrap_or(0);
-                    let sp = uc.reg_read(RegisterARM::SP).unwrap_or(0);
-                    let primask = uc.reg_read(RegisterARM::PRIMASK).unwrap_or(0);
-                    let basepri = uc.reg_read(RegisterARM::BASEPRI).unwrap_or(0);
-                    error!(
-                        "intr_hook intno={:08x} xpsr={:08x} lr={:08x} sp={:08x} primask={:08x} basepri={:08x}",
-                        exception, xpsr, lr, sp, primask, basepri
-                    );
+                    // Unicorn compiles the EXC_RETURN magic-branch detection
+                    // into a translation block only when the block was
+                    // translated in handler mode (gen_bx_excret gates on the
+                    // HANDLER tb-flag) -- and its IPSR/XPSR register writes
+                    // update env->v7m.exception WITHOUT rebuilding the cached
+                    // hflags that feed that tb-flag (unicorn_arm.c rebuilds
+                    // only for APSR/CPSR/CP_REG writes). So whether a
+                    // handler's terminal `pop {...,pc}`/`bx lr` to an
+                    // EXC_RETURN value raises EXCP_EXCEPTION_EXIT (8) or is
+                    // treated as a plain branch depends on a stale flag; the
+                    // plain-branch case fetches from the unmapped magic
+                    // address and lands here as a prefetch abort instead
+                    // (bug-146, hit under sustained EXTI trigger edges). The
+                    // pop has fully retired either way, so the CPU state is
+                    // identical to the intno=8 case -- handle it identically.
+                    let pc = uc.reg_read(RegisterARM::PC).unwrap_or(0);
+                    if is_exception_return_pc(pc as u32) {
+                        let sys = System { uc: RefCell::new(uc), p: p.clone(), d: d.clone() };
+                        p.nvic.borrow_mut().return_from_interrupt(&sys);
+                        p.nvic.borrow_mut().run_pending_interrupts(&sys, vector_table_addr);
+                    } else {
+                        let xpsr = uc.reg_read(RegisterARM::XPSR).unwrap_or(0);
+                        let lr = uc.reg_read(RegisterARM::LR).unwrap_or(0);
+                        let sp = uc.reg_read(RegisterARM::SP).unwrap_or(0);
+                        let primask = uc.reg_read(RegisterARM::PRIMASK).unwrap_or(0);
+                        let basepri = uc.reg_read(RegisterARM::BASEPRI).unwrap_or(0);
+                        error!(
+                            "intr_hook intno={:08x} pc={:08x} xpsr={:08x} lr={:08x} sp={:08x} primask={:08x} basepri={:08x}",
+                            exception, pc, xpsr, lr, sp, primask, basepri
+                        );
+                    }
                 }
                 _ => {
                     error!("intr_hook intno={:08x}", exception);
@@ -302,6 +335,84 @@ mod tests {
     use super::*;
     use crate::config::CpuModel;
     use unicorn_engine::unicorn_const::Prot;
+
+    /// Documents the Unicorn contract Nvic::run_interrupt depends on: a code
+    /// hook fires *before* its instruction executes, and a PC write plus
+    /// emu_stop() from inside it must prevent that instruction from retiring
+    /// -- otherwise dispatching an exception from the code hook would corrupt
+    /// state whenever the interrupted instruction mutates SP/PC (e.g. a
+    /// `pop {..., pc}` would consume the just-pushed exception frame).
+    /// Verified false for both a block-leading and a mid-block instruction
+    /// (bug-146 investigation); this pins the mid-block case.
+    #[test]
+    fn pc_write_plus_emu_stop_from_a_code_hook_prevents_the_hooked_instruction_retiring() {
+        let mut uc = initialize_arm_engine(CpuModel::CortexM7).unwrap();
+        uc.mem_map(0x1000, 0x1000, Prot::ALL).unwrap(); // thread code
+        uc.mem_map(0x2000, 0x1000, Prot::ALL).unwrap(); // "handler"
+        uc.mem_map(0x3000, 0x1000, Prot::ALL).unwrap(); // stack
+
+        // nop; pop {r0, pc} -- the pop is mid-translation-block, like the
+        // crash site (perfEventImpl's epilogue pop at 0x260568).
+        uc.mem_write(0x1000, &[0x00, 0xbf, 0x01, 0xbd]).unwrap();
+        uc.mem_write(0x2000, &[0x00, 0xbf]).unwrap(); // nop
+        uc.mem_write(0x3000, &0x1111_1111u32.to_le_bytes()).unwrap(); // -> r0
+        uc.mem_write(0x3004, &0x0000_1001u32.to_le_bytes()).unwrap(); // -> pc
+
+        uc.reg_write(RegisterARM::SP, 0x3000).unwrap();
+        uc.reg_write(RegisterARM::R0, 0xaaaa_aaaa).unwrap();
+
+        uc.add_code_hook(0x1002, 0x1002, |uc, _pc, _size| {
+            uc.reg_write(RegisterARM::PC, 0x2000).unwrap();
+            uc.emu_stop().unwrap();
+        })
+        .unwrap();
+
+        uc.emu_start(0x1001, 0, 0, 0).unwrap();
+
+        assert_eq!(uc.reg_read(RegisterARM::SP).unwrap(), 0x3000, "pop retired: SP moved");
+        assert_eq!(uc.reg_read(RegisterARM::R0).unwrap(), 0xaaaa_aaaa, "pop retired: r0 loaded");
+        assert_eq!(uc.reg_read(RegisterARM::PC).unwrap(), 0x2000, "PC write was lost");
+    }
+
+    /// Pins the bug-146 mechanism: a `pop {pc}` of an EXC_RETURN magic value
+    /// executed from a *thread-mode* translation block (Unicorn's HANDLER
+    /// tb-flag unset) is a plain branch, so the fetch at the magic address
+    /// raises a prefetch abort (intno=3) with PC parked in the magic range --
+    /// NOT the EXCP_EXCEPTION_EXIT (8) that a handler-mode block would raise.
+    /// run_emulator's intr_hook relies on this to route such aborts into the
+    /// normal exception-return path.
+    #[test]
+    fn exc_return_pop_from_a_thread_mode_block_aborts_with_pc_in_the_magic_range() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+
+        let mut uc = initialize_arm_engine(CpuModel::CortexM7).unwrap();
+        uc.mem_map(0x1000, 0x1000, Prot::ALL).unwrap();
+        uc.mem_map(0x3000, 0x1000, Prot::ALL).unwrap();
+
+        uc.mem_write(0x1000, &[0x00, 0xbd]).unwrap(); // pop {pc}
+        uc.mem_write(0x3000, &0xffff_ffed_u32.to_le_bytes()).unwrap();
+        uc.reg_write(RegisterARM::SP, 0x3000).unwrap();
+
+        let seen = Arc::new(AtomicU64::new(0));
+        let seen_in_hook = seen.clone();
+        uc.add_intr_hook(move |uc, intno| {
+            let pc = uc.reg_read(RegisterARM::PC).unwrap_or(0);
+            seen_in_hook.store(((intno as u64) << 32) | (pc & 0xffff_ffff), Ordering::Relaxed);
+            uc.emu_stop().unwrap();
+        })
+        .unwrap();
+
+        uc.emu_start(0x1001, 0, 0, 0).ok();
+
+        let intno = (seen.load(Ordering::Relaxed) >> 32) as u32;
+        let pc = seen.load(Ordering::Relaxed) as u32;
+        assert_eq!(intno, 3, "expected a prefetch abort from the thread-mode block");
+        assert!(
+            is_exception_return_pc(pc),
+            "abort PC {pc:#x} must be in the EXC_RETURN magic range"
+        );
+    }
 
     #[test]
     fn cortex_m7_executes_proteus_vdiv() {
