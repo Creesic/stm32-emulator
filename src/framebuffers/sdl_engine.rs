@@ -17,8 +17,17 @@ pub struct SdlEngine {
     video_subsystem: VideoSubsystem,
 }
 
-/// How often should we call pump_events() in terms of number of instructions emulated
-pub const PUMP_EVENT_INST_INTERVAL: u64 = 100_000; // ~1-10ms, depending on the speed of the host
+/// How often we run the poll work in the code hook (SDL pump, ext-device TCP,
+/// peripheral deadlines like TIM5's compare match), gated as
+/// `n & PUMP_EVENT_INST_INTERVAL == 0` — so this must be a power of two minus
+/// one. The previous value of 100_000 was AND-ed as a *mask*, not a modulus:
+/// it polled in bursts (any `n` with bits 5/7/9/10/15/16 clear) with dead
+/// zones up to ~98k instructions, which put ~450us of firmware-time jitter on
+/// every TIM5-scheduled event — rusEFI's trigger emulator teeth wobbled too
+/// much for its own decoder to sync on. 1023 polls uniformly every 1024
+/// instructions (~4.7us of firmware time at the 216MHz=1instr/cycle
+/// convention), and is cheaper on average than the old burst pattern.
+pub const PUMP_EVENT_INST_INTERVAL: u64 = 1023;
 
 unsafe impl Send for SdlEngine {}
 unsafe impl Sync for SdlEngine {}
