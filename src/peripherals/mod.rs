@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 pub mod adc;
+pub mod can;
 pub mod dma;
 pub mod dwt;
 pub mod exti;
@@ -22,6 +23,7 @@ pub mod tim5;
 pub mod usart;
 
 use adc::*;
+use can::*;
 use dma::*;
 use dwt::*;
 use exti::*;
@@ -260,6 +262,7 @@ impl Peripherals {
             .or_else(|| Flash::new(&name))
             .or_else(|| Tim11::new(&name))
             .or_else(|| Tim5::new(&name))
+            .or_else(|| Can::new(&name))
             .or_else(|| I2c::new(&name))
             .or_else(|| Dma::new(&name))
             .or_else(|| Spi::new(&name, ext_devices))
