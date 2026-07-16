@@ -142,10 +142,20 @@ pub struct EcuIoAdcChannel {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct EcuIoTriggerWheel {
+    pub signal: &'static str,
+    pub pin_signal: &'static str,
+    pub teeth: u32,
+    pub missing: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct EcuIoDevice {
     pub listen: &'static str,
     pub pins: &'static [EcuIoPin],
     pub adc_channels: &'static [EcuIoAdcChannel],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_wheel: Option<EcuIoTriggerWheel>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -4,7 +4,7 @@
 //! and the ecu_io harness signal tables.
 
 use super::super::{
-    EcuIoAdcChannel, EcuIoDevice, EcuIoPin, LauncherCpuModel, MemoryPatch,
+    EcuIoAdcChannel, EcuIoDevice, EcuIoPin, EcuIoTriggerWheel, LauncherCpuModel, MemoryPatch,
     MemoryRegion, ProfileTemplate, UsbCdcTcpDevice,
 };
 
@@ -155,5 +155,15 @@ pub(crate) const PROFILE: ProfileTemplate = ProfileTemplate {
         listen: "127.0.0.1:29002",
         pins: &ECU_IO_PINS,
         adc_channels: &ECU_IO_ADC_CHANNELS,
+        // Instruction-clock-paced 60-2 crank wheel on the stock tune's
+        // trigger input (din1/PC6, TT_TOOTHED_WHEEL_60_2), commanded by
+        // `trigger_rpm=<N>` over the ecu_io socket. See
+        // docs/superpowers/specs/2026-07-16-ecu-io-trigger-wheel-design.md.
+        trigger_wheel: Some(EcuIoTriggerWheel {
+            signal: "trigger_rpm",
+            pin_signal: "din1",
+            teeth: 60,
+            missing: 2,
+        }),
     }),
 };

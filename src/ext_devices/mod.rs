@@ -94,6 +94,8 @@ impl ExtDevices {
             if let Err(error) = ecu_io.borrow_mut().poll() {
                 warn!("ECU IO bridge error: {error:#}");
             }
+            let now = crate::emulator::NUM_INSTRUCTIONS.load(std::sync::atomic::Ordering::Relaxed);
+            ecu_io.borrow_mut().advance_trigger_wheel(now);
             ecu_io.borrow_mut().check_digital_edges(sys);
         }
     }

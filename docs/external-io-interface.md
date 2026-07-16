@@ -63,6 +63,9 @@ name=value
   client is connected the events are dropped — this is a live view,
   not a log. Only GPIO-driven writes are observable; outputs firmware
   routes through hardware timer PWM (idle, boost) produce no events.
+- **Trigger wheel** (`trigger_rpm`): commands the emulator's built-in
+  crank-wheel generator (see below). Integer RPM, clamped to 0–30000;
+  `0` stops the wheel and holds the current level.
 
 Error handling — all non-fatal, connection stays up:
 
@@ -110,11 +113,44 @@ Consequences:
 - Static or slowly-varying values (sensor levels) work naturally: a
   value applies from the moment it is received until replaced.
 - Precisely-timed waveforms (crank/cam tooth patterns) **cannot** be
-  generated accurately by sleeping wall-clock time between edges. A
-  trigger feeder needs a feedback signal to pace against; today the
-  practical proxy is coarse (e.g. pacing against observed output
-  events). Treat high-fidelity trigger simulation as an open design
-  problem, not a solved one — see the design doc's Future Work.
+  streamed as edges over this socket — wall-clock spacing means
+  nothing to the firmware's clock, and batched toggle pairs collapse
+  at poll granularity. Use the built-in trigger wheel instead.
+
+### Trigger wheel (`trigger_rpm`)
+
+The emulator generates the crank waveform itself, paced by the
+instruction clock (the same timebase as the firmware's own timers, so
+tooth timing is exact in firmware time by construction). The external
+program sends only the rotation speed:
+
+```
+trigger_rpm=1200
+```
+
+Configured per example under `ecu_io` (`proteus_f7/config.yaml`):
+
+```yaml
+trigger_wheel:
+  signal: trigger_rpm   # inbound name that sets the RPM
+  pin_signal: din1      # input pin signal the wheel drives (stock crank)
+  teeth: 60
+  missing: 2
+```
+
+The wheel drives its pin's level (50% duty per tooth slot, `missing`
+gap slots) through the same edge path as a received `din1=` line, so
+the firmware sees ordinary EXTI trigger edges. Update the RPM as often
+as you like; changes are phase-continuous. Send smooth ramps rather
+than large steps — an instantaneous jump (e.g. 1200→3500) transiently
+trips the decoder's acceleration plausibility check, exactly as it
+would on a real engine that cannot step its speed. While the wheel is
+spinning, do not also stream `pin_signal` levels manually — the
+generator overwrites them every poll.
+
+Live-verified: `trigger_rpm=1200` reads back as RPM 1199–1200 in the
+TS output channels with the sync counter climbing and zero trigger
+errors; `trigger_rpm=0` lets RPM decay to 0.
 
 ### Minimal client
 
@@ -143,6 +179,9 @@ while True:
   stores a value that can mask (deduplicate away) the next genuine
   firmware-driven event for that name. Don't write to output names.
 - TIM-PWM-driven outputs are invisible (no timer output model yet).
+- The trigger wheel drives one pin with one fixed tooth pattern; there
+  is no cam/VVT wheel and no arbitrary-waveform (timestamped edge)
+  interface yet.
 - One client per endpoint; there is no multiplexing or replay.
 - The protocol is unversioned plain text; see the design doc for the
   compatibility rules external programs should follow.

@@ -110,6 +110,16 @@ fn adc_channels_from(ecu_io: &serde_yaml::Value) -> Vec<(String, String)> {
         .collect()
 }
 
+fn trigger_wheel_from(ecu_io: &serde_yaml::Value) -> (String, String, u64, u64) {
+    let wheel = &ecu_io["trigger_wheel"];
+    (
+        wheel["signal"].as_str().expect("trigger_wheel.signal must be a string").to_string(),
+        wheel["pin_signal"].as_str().expect("trigger_wheel.pin_signal must be a string").to_string(),
+        wheel["teeth"].as_u64().expect("trigger_wheel.teeth must be an integer"),
+        wheel["missing"].as_u64().expect("trigger_wheel.missing must be an integer"),
+    )
+}
+
 #[test]
 fn proteus_f7_resolves_both_verified_firmware_aliases() {
     let profile = ResolvedProfile::for_variant(
@@ -259,6 +269,26 @@ fn proteus_f7_config_yaml_matches_the_launcher_generated_ecu_io_device() {
 
     assert_eq!(pins_from(&launcher_ecu_io), pins_from(&config_ecu_io));
     assert_eq!(adc_channels_from(&launcher_ecu_io), adc_channels_from(&config_ecu_io));
+    assert_eq!(trigger_wheel_from(&launcher_ecu_io), trigger_wheel_from(&config_ecu_io));
+}
+
+#[test]
+fn proteus_f7_yaml_includes_the_trigger_wheel_on_the_stock_crank_input() {
+    // The stock Proteus tune decodes a 60-2 wheel (TT_TOOTHED_WHEEL_60_2) on
+    // din1/PC6 (PROTEUS_DIGITAL_1); the instruction-clock-paced generator
+    // must target exactly that signal.
+    let profile = ResolvedProfile::for_variant(
+        KnownVariant::proteus_f7(),
+        PathBuf::from("rusefi.bin"),
+        PathBuf::from("STM32F767.svd"),
+    )
+    .unwrap();
+
+    let ecu_io = ecu_io_value(&profile.to_yaml().unwrap());
+    assert_eq!(
+        trigger_wheel_from(&ecu_io),
+        ("trigger_rpm".to_string(), "din1".to_string(), 60, 2)
+    );
 }
 
 #[test]

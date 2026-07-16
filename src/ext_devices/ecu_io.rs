@@ -39,12 +39,73 @@ pub struct EcuIoAdcChannelConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct EcuIoTriggerWheelConfig {
+    /// Inbound `name=value` signal that sets the wheel's RPM (e.g. `trigger_rpm`).
+    pub signal: String,
+    /// Existing `direction: input` pin signal whose level the wheel drives
+    /// (e.g. `din1` -> PC6, the stock Proteus crank input).
+    pub pin_signal: String,
+    pub teeth: u32,
+    pub missing: u32,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct EcuIoConfig {
     pub listen: String,
     #[serde(default)]
     pub pins: Vec<EcuIoPinConfig>,
     #[serde(default)]
     pub adc_channels: Vec<EcuIoAdcChannelConfig>,
+    /// Optional instruction-clock-paced crank trigger generator; see
+    /// docs/superpowers/specs/2026-07-16-ecu-io-trigger-wheel-design.md.
+    #[serde(default)]
+    pub trigger_wheel: Option<EcuIoTriggerWheelConfig>,
+}
+
+/// Missing-tooth crank wheel advanced on the emulator's instruction clock
+/// (1 instruction = 1 CPU cycle at 216 MHz, the same convention SysTick and
+/// TIM5 use), so tooth timing is exact in firmware time by construction --
+/// unlike a TCP feeder, whose wall-clock pacing the firmware cannot decode.
+struct TriggerWheel {
+    config: EcuIoTriggerWheelConfig,
+    /// Fractional revolutions, wrapped to [0, 1).
+    position: f64,
+    last_instructions: u64,
+}
+
+impl TriggerWheel {
+    /// See tim5.rs's INSTRUCTIONS_PER_TICK: firmware's clocks all assume
+    /// 216e6 instructions per second, so one revolution at `rpm` spans
+    /// 60/rpm * 216e6 instructions.
+    const INSTRUCTIONS_PER_MINUTE: f64 = 60.0 * 216_000_000.0;
+
+    fn new(config: EcuIoTriggerWheelConfig) -> Self {
+        Self { config, position: 0.0, last_instructions: 0 }
+    }
+
+    /// The wheel's output level at a position: teeth occupy the first half
+    /// of each slot (50% duty), and the last `missing` slots have no tooth
+    /// (e.g. 60-2's gap). Matches AngeES's EcuIoClient wheel model.
+    fn level_at(&self, position: f64) -> bool {
+        let slot_f = position.fract() * self.config.teeth as f64;
+        let slot = slot_f as u32;
+        let in_first_half = (slot_f - slot as f64) < 0.5;
+        slot < self.config.teeth - self.config.missing && in_first_half
+    }
+
+    /// Advances to `now_instructions` at `rpm` and returns the new level,
+    /// or None while stopped (rpm <= 0): the level holds and time simply
+    /// passes. Position stays continuous across RPM changes.
+    fn advance(&mut self, now_instructions: u64, rpm: i32) -> Option<bool> {
+        let delta = now_instructions.saturating_sub(self.last_instructions);
+        self.last_instructions = now_instructions;
+        if rpm <= 0 {
+            return None;
+        }
+        let rpm = rpm.min(30_000) as f64;
+        self.position = (self.position + delta as f64 * rpm / Self::INSTRUCTIONS_PER_MINUTE).fract();
+        Some(self.level_at(self.position))
+    }
 }
 
 pub struct EcuIo {
@@ -62,6 +123,7 @@ pub struct EcuIo {
     /// instead of storing them unbounded (see the design doc's "unknown
     /// name ... logged and ignored" promise).
     known_names: HashSet<String>,
+    trigger_wheel: Option<TriggerWheel>,
 }
 
 impl EcuIo {
@@ -90,7 +152,10 @@ impl EcuIo {
             .iter()
             .map(|p| p.name.clone())
             .chain(config.adc_channels.iter().map(|c| c.name.clone()))
+            .chain(config.trigger_wheel.iter().map(|t| t.signal.clone()))
             .collect();
+
+        let trigger_wheel = config.trigger_wheel.clone().map(TriggerWheel::new);
 
         Ok(Self {
             config,
@@ -103,7 +168,24 @@ impl EcuIo {
             digital_input_pins,
             last_digital_levels: HashMap::new(),
             known_names,
+            trigger_wheel,
         })
+    }
+
+    /// Advances the optional trigger wheel to `now_instructions` and drives
+    /// its pin signal's stored level. Edge delivery is NOT done here: the
+    /// caller runs `check_digital_edges` right after, which detects the
+    /// level change and raises the EXTI line exactly as if the level had
+    /// arrived as a `name=value` line over TCP.
+    pub fn advance_trigger_wheel(&mut self, now_instructions: u64) {
+        let Some(wheel) = self.trigger_wheel.as_mut() else {
+            return;
+        };
+        let rpm = self.values.get(&wheel.config.signal).copied().unwrap_or(0);
+        if let Some(level) = wheel.advance(now_instructions, rpm) {
+            let pin_signal = wheel.config.pin_signal.clone();
+            self.values.insert(pin_signal, level as i32);
+        }
     }
 
     pub fn register(config: EcuIoConfig, gpio: &mut GpioPorts) -> Result<Rc<RefCell<Self>>> {
@@ -331,6 +413,7 @@ mod tests {
             adc_channels: vec![
                 EcuIoAdcChannelConfig { name: "map".to_string(), pin: "PC0".to_string() },
             ],
+            trigger_wheel: None,
         }
     }
 
@@ -477,6 +560,103 @@ mod tests {
         assert_eq!(config.adc_channels[0].name, "map");
     }
 
+    fn wheel_60_2() -> super::TriggerWheel {
+        super::TriggerWheel::new(super::EcuIoTriggerWheelConfig {
+            signal: "trigger_rpm".to_string(),
+            pin_signal: "din1".to_string(),
+            teeth: 60,
+            missing: 2,
+        })
+    }
+
+    #[test]
+    fn trigger_wheel_level_is_high_in_the_first_half_of_a_tooth_slot() {
+        let wheel = wheel_60_2();
+        let slot = 1.0 / 60.0;
+        assert!(wheel.level_at(0.25 * slot), "first half of slot 0 carries the tooth");
+        assert!(!wheel.level_at(0.75 * slot), "second half of slot 0 is low");
+        assert!(wheel.level_at(10.0 * slot + 0.25 * slot), "mid-wheel tooth present");
+    }
+
+    #[test]
+    fn trigger_wheel_missing_teeth_slots_stay_low() {
+        let wheel = wheel_60_2();
+        let slot = 1.0 / 60.0;
+        assert!(wheel.level_at(57.0 * slot + 0.25 * slot), "slot 57 is the last real tooth");
+        assert!(!wheel.level_at(58.0 * slot + 0.25 * slot), "slot 58 is in the 60-2 gap");
+        assert!(!wheel.level_at(59.0 * slot + 0.25 * slot), "slot 59 is in the 60-2 gap");
+    }
+
+    #[test]
+    fn trigger_wheel_advances_one_revolution_per_expected_instruction_count() {
+        let mut wheel = wheel_60_2();
+        // 1200 rpm = 20 rev/s; one rev = 216e6/20 = 10.8M instructions.
+        wheel.advance(0, 1200);
+        wheel.advance(10_800_000, 1200);
+        assert!(wheel.position < 1e-9 || wheel.position > 1.0 - 1e-9, "full revolution wraps to ~0, got {}", wheel.position);
+
+        // Half a revolution later, position is 0.5 -- continuity across an RPM change.
+        wheel.advance(10_800_000 + 2_700_000, 2400);
+        assert!((wheel.position - 0.5).abs() < 1e-9, "got {}", wheel.position);
+    }
+
+    #[test]
+    fn trigger_wheel_holds_level_and_position_while_stopped() {
+        let mut wheel = wheel_60_2();
+        wheel.advance(0, 1200);
+        wheel.advance(1_000_000, 1200);
+        let position = wheel.position;
+        assert_eq!(wheel.advance(50_000_000, 0), None, "stopped wheel produces no level");
+        assert_eq!(wheel.position, position, "stopped wheel does not move");
+        // Restarting does not jump: time spent stopped is not integrated.
+        wheel.advance(50_001_024, 1200);
+        assert!((wheel.position - position) < 0.001, "no position jump after restart");
+    }
+
+    #[test]
+    fn trigger_rpm_drives_the_pin_signal_through_the_values_map() {
+        let mut config = test_config();
+        config.pins = vec![super::EcuIoPinConfig {
+            name: "din1".to_string(),
+            pin: "PC6".to_string(),
+            direction: super::EcuIoPinDirection::Input,
+        }];
+        config.trigger_wheel = Some(super::EcuIoTriggerWheelConfig {
+            signal: "trigger_rpm".to_string(),
+            pin_signal: "din1".to_string(),
+            teeth: 60,
+            missing: 2,
+        });
+        let mut ecu_io = EcuIo::new(config).unwrap();
+
+        // trigger_rpm is a known name (not rejected), and the wheel drives din1:
+        // at 1200 rpm a slot is 180k instructions, so 45k in (a quarter slot)
+        // the level is high and 135k in (three quarters) it is low.
+        ecu_io.set_value("trigger_rpm", 1200);
+        assert!(ecu_io.values.contains_key("trigger_rpm"), "trigger signal must be accepted");
+
+        ecu_io.advance_trigger_wheel(45_000);
+        assert_eq!(ecu_io.values.get("din1"), Some(&1), "first half of slot 0 is high");
+        assert!(ecu_io.digital_level("din1"));
+
+        ecu_io.advance_trigger_wheel(135_000);
+        assert_eq!(ecu_io.values.get("din1"), Some(&0), "second half of slot 0 is low");
+    }
+
+    #[test]
+    fn trigger_wheel_configuration_deserializes() {
+        let config: EcuIoConfig = serde_yaml::from_str(
+            "listen: 127.0.0.1:29002\npins:\n  - name: din1\n    pin: PC6\n    direction: input\ntrigger_wheel:\n  signal: trigger_rpm\n  pin_signal: din1\n  teeth: 60\n  missing: 2\n",
+        )
+        .unwrap();
+
+        let wheel = config.trigger_wheel.expect("trigger_wheel section must parse");
+        assert_eq!(wheel.signal, "trigger_rpm");
+        assert_eq!(wheel.pin_signal, "din1");
+        assert_eq!(wheel.teeth, 60);
+        assert_eq!(wheel.missing, 2);
+    }
+
     #[test]
     fn push_capped_vec_drops_oldest_bytes_once_over_capacity() {
         let mut buffer = vec![1u8, 2, 3];
@@ -511,6 +691,7 @@ mod tests {
                 direction: super::EcuIoPinDirection::Input,
             }],
             adc_channels: vec![],
+            trigger_wheel: None,
         };
         let ecu_io = EcuIo::register(config, &mut gpio).unwrap();
         let (mut uc, p, d) = test_parts();
@@ -535,6 +716,7 @@ mod tests {
                 direction: super::EcuIoPinDirection::Output,
             }],
             adc_channels: vec![],
+            trigger_wheel: None,
         };
         let ecu_io = EcuIo::register(config, &mut gpio).unwrap();
         let (mut uc, p, d) = test_parts();
@@ -564,6 +746,7 @@ mod tests {
                 direction: super::EcuIoPinDirection::Input,
             }],
             adc_channels: vec![],
+            trigger_wheel: None,
         };
         let ecu_io = EcuIo::register(config, &mut gpio).unwrap();
 

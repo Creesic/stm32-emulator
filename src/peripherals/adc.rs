@@ -194,6 +194,7 @@ mod tests {
                     pin: pin.to_string(),
                 })
                 .collect(),
+            trigger_wheel: None,
         };
         let ecu_io = Rc::new(RefCell::new(EcuIo::new(config).unwrap()));
         for (name, _, value) in channels {

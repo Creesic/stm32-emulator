@@ -87,6 +87,15 @@ devices:
         - { name: ign10, pin: PG4,  direction: output }
         - { name: ign11, pin: PG3,  direction: output }
         - { name: ign12, pin: PG2,  direction: output }
+      # Instruction-clock-paced 60-2 crank wheel on the stock tune's trigger
+      # input (din1/PC6, TT_TOOTHED_WHEEL_60_2). Send `trigger_rpm=<N>` over
+      # this socket to spin it; 0 stops it. See
+      # docs/superpowers/specs/2026-07-16-ecu-io-trigger-wheel-design.md.
+      trigger_wheel:
+        signal: trigger_rpm
+        pin_signal: din1
+        teeth: 60
+        missing: 2
       adc_channels:
         - { name: at1,   pin: PC4 }
         - { name: at2,   pin: PC5 }
