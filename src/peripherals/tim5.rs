@@ -36,9 +36,10 @@ pub struct Tim5 {
     // reset value of 0 would spuriously "match" the moment CNT starts
     // counting from 0, latching SR before rusEFI ever uses the channel.
     ccr1_armed: bool,
-    // CNT reads as (current instruction count + offset) while enabled (CEN
-    // set), mirroring Dwt's CYCCNT model; held_cnt is the frozen value while
-    // disabled, and the value a CNT write while disabled takes effect from.
+    // CNT reads as (instruction count scaled to microseconds + offset) while
+    // enabled (CEN set); held_cnt is the frozen value while disabled, and the
+    // value a CNT write while disabled takes effect from. (Dwt's CYCCNT stays
+    // per-instruction: it counts CPU cycles, not microseconds.)
     cnt_offset: u32,
     held_cnt: u32,
 }
@@ -46,6 +47,20 @@ pub struct Tim5 {
 impl Tim5 {
     const DIER_CC1IE: u32 = 1 << 1;
     const SR_CC1IF: u32 = 1 << 1;
+
+    /// The emulator's timebase convention is 1 instruction = 1 CPU cycle at
+    /// 216 MHz: firmware programs SysTick's reload to 215,999 for its 1 ms
+    /// tick, and `Nvic::systick_period` fires it every `reload` instructions.
+    /// rusEFI clocks TIM5 at SCHEDULER_TIMER_FREQ = US_TO_NT_MULTIPLIER (4)
+    /// MHz (port_mpu_util.h), so CNT must advance once per 216/4 = 54
+    /// instructions to stay consistent with SysTick's millisecond. Counting
+    /// per instruction instead ran the NT clock 54x faster than the OS clock,
+    /// tripping rusEFI's "CRITICAL error: gap in time" linearity watchdog as
+    /// soon as periodic engine callbacks ran; an earlier 1-per-216 guess
+    /// (assuming a 1 MHz timer) ran it 4x slow and failed
+    /// validateHardwareTimer ("hwTimer not alive": the 10 ms test callback
+    /// arrived at 40 OS-ms, past the 12 ms deadline).
+    const INSTRUCTIONS_PER_TICK: u64 = 54;
 
     pub fn new(name: &str) -> Option<Box<dyn Peripheral>> {
         if name == "TIM5" {
@@ -59,13 +74,20 @@ impl Tim5 {
         self.cr1 & 1 != 0
     }
 
-    fn num_instructions() -> u32 {
-        crate::emulator::NUM_INSTRUCTIONS.load(Ordering::Relaxed) as u32
+    /// Scaled in u64 before truncating so CNT wraps at 2^32 timer ticks
+    /// (rusEFI's expected ~17.9-minute rollover at 4 MHz), not 2^32
+    /// instructions.
+    pub(crate) fn ticks_from_instructions(instructions: u64) -> u32 {
+        (instructions / Self::INSTRUCTIONS_PER_TICK) as u32
+    }
+
+    fn ticks_now() -> u32 {
+        Self::ticks_from_instructions(crate::emulator::NUM_INSTRUCTIONS.load(Ordering::Relaxed))
     }
 
     fn cnt(&self) -> u32 {
         if self.cen() {
-            Self::num_instructions().wrapping_add(self.cnt_offset)
+            Self::ticks_now().wrapping_add(self.cnt_offset)
         } else {
             self.held_cnt
         }
@@ -75,7 +97,7 @@ impl Tim5 {
         let was_enabled = self.cen();
         let now_enabled = value & 1 != 0;
         if now_enabled && !was_enabled {
-            self.cnt_offset = self.held_cnt.wrapping_sub(Self::num_instructions());
+            self.cnt_offset = self.held_cnt.wrapping_sub(Self::ticks_now());
         } else if !now_enabled && was_enabled {
             self.held_cnt = self.cnt();
         }
@@ -84,7 +106,7 @@ impl Tim5 {
 
     fn write_cnt(&mut self, value: u32) {
         if self.cen() {
-            self.cnt_offset = value.wrapping_sub(Self::num_instructions());
+            self.cnt_offset = value.wrapping_sub(Self::ticks_now());
         } else {
             self.held_cnt = value;
         }
@@ -164,6 +186,28 @@ mod tests {
     // rely on a write being observed on the very next read, which holds
     // regardless of NUM_INSTRUCTIONS's actual value since no real
     // instructions execute between the two calls.
+
+    #[test]
+    fn cnt_advances_one_tick_per_54_instructions() {
+        // 216 MHz core, 1 instruction = 1 cycle: SysTick's 1 ms is 216,000
+        // instructions, and rusEFI runs TIM5 at 4 MHz (US_TO_NT_MULTIPLIER),
+        // so one TIM5 tick must be 216/4 = 54 instructions or the two
+        // firmware clocks drift apart (rusEFI's "gap in time" /
+        // "hwTimer not alive" errors).
+        assert_eq!(
+            Tim5::ticks_from_instructions(54 * 5) - Tim5::ticks_from_instructions(0),
+            5
+        );
+    }
+
+    #[test]
+    fn cnt_wraps_at_two_to_the_32_ticks_not_instructions() {
+        // Scale in u64 first: wrapping the u32 instruction count before the
+        // divide would make CNT jump backwards every 2^32 instructions,
+        // which rusEFI's 32->64 NT extension would misread as a full timer
+        // rollover and add a bogus ~17.9-minute jump.
+        assert_eq!(Tim5::ticks_from_instructions(1u64 << 32), 79_536_431);
+    }
 
     #[test]
     fn cnt_reads_zero_by_default_while_disabled() {
