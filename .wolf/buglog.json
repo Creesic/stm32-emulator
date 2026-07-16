@@ -2649,17 +2649,19 @@
     {
       "id": "bug-146",
       "timestamp": "2026-07-16T15:00:00.000Z",
-      "error_message": "OPEN: sustained external din1 edge feed (40Hz toggles for ~1s+) wedges the emulator: prefetch abort (Unicorn intno=3) at the EXTI ISR's final 'pop {r3,r4,r5,pc}' (handleExtiIsr, digital_input_exti.cpp:213), sp=0x20021000, xpsr IPSR=23, lr=0xffffffed; intr_hook then spams ERROR forever at frozen clk.",
+      "error_message": "sustained external din1 edge feed (40Hz toggles for ~1s+) wedges the emulator: prefetch abort (Unicorn intno=3) at the EXTI ISR's final 'pop {r3,r4,r5,pc}' (handleExtiIsr, digital_input_exti.cpp:213), sp=0x20021000, xpsr IPSR=23, lr=0xffffffed; intr_hook then spams ERROR forever at frozen clk.",
       "file": "src/peripherals/nvic.rs, src/emulator.rs",
-      "root_cause": "NOT root-caused. Instruction-for-instruction identical ISR executions succeed when dispatch happens at the WFI idle boundary but this failure appears when irq=23 is dispatched mid-thread (pc in perfEventImpl) with irq=60/67 pending simultaneously; the popped EXC_RETURN slot reads garbage, implying the handler stack or entry state was corrupted. Suspected: mid-translation-block PC-write dispatch semantics (same class as the documented IT-block dispatch hazard in note_fetched_instruction) or a multi-pending entry/return interaction. Full -vvv crash trace captured (scratchpad emu_crash2.log, first ERROR at line 583463) with symbol-matched epicefi.bin.",
-      "fix": "Not fixed; needs a dedicated NVIC forensics session. Does not affect the firmware's own trigger stimulator (self_stimulation), which is stable for minutes under full interrupt load.",
+      "root_cause": "FOUND 2026-07-16: Unicorn compiles the EXC_RETURN magic-branch check into a TB only when translated in handler mode (gen_bx_excret gates on the HANDLER tb-flag from QEMU's cached hflags). Unicorn's IPSR/XPSR reg writes update env->v7m.exception WITHOUT rebuilding hflags (unicorn_arm.c rebuilds only for APSR/CPSR/CP_REG), and Unicorn never runs QEMU's v7m do_interrupt that would refresh them. A handler whose code runs in stale thread-mode TBs executes its terminal pop of EXC_RETURN as a plain branch; the fetch at the unmapped magic address raises prefetch abort (intno=3) and the emulator wedged. epicEFI's EXTI fast handler executes no msr instructions that might incidentally rebuild hflags, so sustained din1 edges hit it reliably. The earlier mid-block-retire theory was refuted by a characterization test (a PC write + emu_stop from a code hook does NOT let the hooked instruction retire).",
+      "fix": "FIXED 2026-07-16 (commit c2ff494): intr_hook now routes intno=3 with PC in the EXC_RETURN magic range (pc & 0xFFFFFF00 == 0xFFFFFF00; top page is never mapped) through the same return_from_interrupt + run_pending_interrupts path as intno=8 -- the interrupted pop has fully retired in both cases so the CPU state is identical. Two regressions pin the engine semantics. Live-verified: the 20s 40Hz din1 storm runs clean; decoder counts and validates every external edge (reports 'too many teeth' on a gapless square wave, correctly).",
       "tags": [
         "nvic",
         "exti",
         "crash",
-        "open",
         "unicorn",
-        "prefetch-abort"
+        "prefetch-abort",
+        "fixed",
+        "hflags",
+        "exc-return"
       ],
       "related_bugs": [
         "bug-145",
@@ -2667,7 +2669,23 @@
         "bug-077"
       ],
       "occurrences": 1,
-      "last_seen": "2026-07-16T15:00:00.000Z"
+      "last_seen": "2026-07-16T16:30:00.000Z"
+    },
+    {
+      "id": "bug-151",
+      "timestamp": "2026-07-16T17:46:59.885Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/emulator.rs",
+      "root_cause": "2 lines replaced/restructured",
+      "fix": "Rewrote 11→33 lines (2 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T17:46:59.885Z"
     }
   ]
 }

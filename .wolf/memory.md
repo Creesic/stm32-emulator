@@ -783,3 +783,16 @@
 | 12:40 | Session end: 21 writes across 10 files (crank_experiment.py, crank_experiment2.py, resolve_pcs.sh, can.rs, mod.rs) | 13 reads | ~29042 tok |
 | 13:26 | Edited src/peripherals/mod.rs | removed 9 lines | ~2 |
 | 13:27 | Edited src/peripherals/mod.rs | modified new() | ~173 |
+| 13:34 | Edited src/emulator.rs | modified emu_stop_from_a_code_hook_reports_whether_the_hooked_instruction_retires() | ~495 |
+| 13:35 | Edited src/emulator.rs | 13→15 lines | ~195 |
+| 13:36 | Edited src/emulator.rs | emu_stop_from_a_code_hook_reports_whether_the_hooked_instruction_retires() → pc_write_plus_emu_stop_from_a_code_hook_prevents_the_hooked_instruction_retiring() | ~186 |
+| 13:36 | Edited src/emulator.rs | 5→4 lines | ~76 |
+
+## Session: 2026-07-16 13:44
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 13:46 | Edited src/emulator.rs | modified is_exception_return_pc() | ~610 |
+| 13:47 | Edited src/emulator.rs | modified thumb() | ~162 |
+| 13:47 | Edited src/emulator.rs | modified exc_return_pop_from_a_thread_mode_block_aborts_with_pc_in_the_magic_range() | ~560 |
+| 16:40 | bug-146 root-caused and FIXED: Unicorn stale-hflags (IPSR/XPSR writes never rebuild cached HANDLER tb-flag; gen_bx_excret magic check is translation-gated) -> EXC_RETURN pops from thread-mode TBs land as prefetch aborts. intr_hook now routes intno=3-with-magic-PC through return_from_interrupt. 2 new Unicorn-semantics regressions; 101/101 tests. Live: 20s din1 storm clean, decoder validates external edges (correct "too many teeth" on gapless wave). Committed c2ff494 + 5 earlier commits (can.rs f898d67, tim5 74f8484, poll mask 008fb42, STIR 2c1baa0, wolf docs 1d1eda6). | src/emulator.rs, .wolf/* | fixed and verified | ~120k |
