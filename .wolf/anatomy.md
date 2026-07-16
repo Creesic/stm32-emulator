@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-07-16T17:27:31.529Z
-> Files: 135 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-07-16T21:45:29.429Z
+> Files: 142 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/2ddd4150-2756-4300-8896-52f47e9b74d4/scratchpad/
 
@@ -42,11 +42,26 @@
 
 ## ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/
 
+- `compare_bench.py` — Like-for-like benchmark of one emulator binary. Usage: compare_bench.py <logfile> (~700 tok)
 - `crank_experiment.py` — Live crank-path experiment against the stm32-emulator running epicefi proteus_f7. (~1434 tok)
 - `crank_experiment2.py` — Round 2: console-text visibility + tooth-level counters. (~1038 tok)
 - `edges_20s.py` — Wait for firmware TS channel, then toggle din1 at 40Hz for 20s. (~302 tok)
 - `one_edge.py` — Wait for firmware TS channel, then feed exactly one din1 rising edge. (~274 tok)
+- `perf_measure.py` — framed, recv_exact, read_frame, timed_roundtrip (~564 tok)
 - `resolve_pcs.sh` (~103 tok)
+- `wheel_gauge_bench.py` — framed, recv_exact, read_frame, gauge_rate (~594 tok)
+
+## ../AngeES/include/
+
+- `ecu_io_client.h` — ifndef ATG_ENGINE_SIM_ECU_IO_CLIENT_H (~831 tok)
+
+## ../AngeES/src/
+
+- `ecu_io_client.cpp` — include "../include/ecu_io_client.h" (~1527 tok)
+
+## ../AngeES/test/
+
+- `ecu_io_client_tests.cpp` — include "../include/ecu_io_client.h" (~705 tok)
 
 ## ./
 
@@ -55,7 +70,7 @@
 - `asm.py` — pip3 install keystone-engine (~141 tok)
 - `build.rs` (~58 tok)
 - `Cargo.toml` — Rust package manifest (~190 tok)
-- `CLAUDE.md` — Build/test/architecture guide incl. native launcher, Proteus F7, virtual USB (~2200 tok)
+- `CLAUDE.md` — CLAUDE.md (~2844 tok)
 - `LICENSE` — Project license (~9553 tok)
 - `README.md` — Project documentation (~2768 tok)
 
@@ -87,7 +102,7 @@
 
 ## docs/
 
-- `external-io-interface.md` — External I/O Interface (~1606 tok)
+- `external-io-interface.md` — External I/O Interface (~1951 tok)
 - `external-io-interface.md` — External I/O Interface: TCP contract (29000 CDC / 29002 ecu_io) for outside programs (~1500 tok)
 - `proteus-f7-ecu-io.md` — Proteus F7 ECU I/O (~1732 tok)
 - `proteus-f7-usb.md` — Proteus F7 Virtual USB CDC (~1104 tok)
@@ -111,6 +126,7 @@
 - `2026-07-15-external-io-interface-design.md` — External I/O Interface Design (rationale behind external-io-interface.md) (~1500 tok)
 - `2026-07-15-proteus-harness-io-design.md` — Proteus F7 Full Harness I/O Routing Design (~1600 tok)
 - `2026-07-15-proteus-harness-io-design.md` — Proteus F7 Full Harness I/O Routing Design (~1310 tok)
+- `2026-07-16-ecu-io-trigger-wheel-design.md` — ECU I/O trigger-wheel generator (instruction-clock-paced crank signal) (~1285 tok)
 
 ## monox/
 
@@ -119,7 +135,7 @@
 ## proteus_f7/
 
 - `boot-sequence-notes.md` — Proteus F7 boot-sequence trace evidence (~3758 tok)
-- `config.yaml` (~1226 tok)
+- `config.yaml` (~1337 tok)
 - `epicefi_symbols.yaml` — TEMPORARY diagnostic config: identical to config.yaml but loads the (~321 tok)
 - `README.md` — Local asset setup and bounded trace commands (~90 tok)
 - `setup.ps1` — Copies firmware and extracts the exact F767 SVD from ST's archive (~190 tok)
@@ -133,7 +149,7 @@
 
 ## src/
 
-- `emulator.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~3605 tok)
+- `emulator.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~6398 tok)
 
 ## src/bin/
 
@@ -147,9 +163,9 @@
 ## src/ext_devices/
 
 - `display.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1865 tok)
-- `ecu_io.rs` — Defensive cap on `recv_buffer`/`outgoing` growth against a stalled or malicious (~5786 tok)
+- `ecu_io.rs` — Defensive cap on `recv_buffer`/`outgoing` growth against a stalled or malicious (~7920 tok)
 - `lcd.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1257 tok)
-- `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1889 tok)
+- `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1932 tok)
 - `spi_flash.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1135 tok)
 - `touchscreen.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1527 tok)
 - `usart_probe.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~328 tok)
@@ -164,7 +180,7 @@
 
 ## src/launcher/
 
-- `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~2425 tok)
+- `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~2505 tok)
 - `process.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~1803 tok)
 - `ui_state.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~175 tok)
 - `workspace.rs` — [derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)] (~918 tok)
@@ -172,11 +188,11 @@
 ## src/launcher/boards/
 
 - `mod.rs` — Per-board launcher profile data. One module per supported board: (~83 tok)
-- `proteus_f7.rs` — Proteus F7 (STM32F767) launcher profile: memory map, boot patches, (~1750 tok)
+- `proteus_f7.rs` — Proteus F7 (STM32F767) launcher profile: memory map, boot patches, (~1876 tok)
 
 ## src/peripherals/
 
-- `adc.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~2512 tok)
+- `adc.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~2521 tok)
 - `can.rs` — Minimal bxCAN readiness model: MSR.INAK/SLAK mirror MCR.INRQ/SLEEP, TSR mailboxes always empty (~700 tok)
 - `can.rs` — Minimal bxCAN readiness model (trace-constrained, like `Pwr`/`Rtc`/`Flash`). (~788 tok)
 - `dma.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~4540 tok)
@@ -187,7 +203,7 @@
 - `gpio.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~2184 tok)
 - `i2c.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~386 tok)
 - `mod.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~5285 tok)
-- `nvic.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~8023 tok)
+- `nvic.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~6978 tok)
 - `otg_fs.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~12464 tok)
 - `pwr.rs` — Minimal PWR CR1/CSR1 voltage-scaling readiness model (~250 tok)
 - `rcc.rs` — SPDX-License-Identifier: GPL-3.0-or-later (~256 tok)
@@ -201,5 +217,5 @@
 
 ## tests/
 
-- `launcher_profile.rs` — Full Proteus harness pin table (name, pin, direction), copied from (~3335 tok)
+- `launcher_profile.rs` — Full Proteus harness pin table (name, pin, direction), copied from (~3665 tok)
 - `launcher_state.rs` — [test] (~282 tok)

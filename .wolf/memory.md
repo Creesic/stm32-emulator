@@ -823,3 +823,20 @@
 | 15:10 | Created ../AngeES/src/ecu_io_client.cpp | — | ~1527 |
 | 15:11 | Created ../AngeES/test/ecu_io_client_tests.cpp | — | ~705 |
 | 15:07 | Shipped ecu_io trigger-wheel generator (spec + TDD, commits 61d0xxx/2522213): trigger_rpm=1200 over :29002 -> RPM=1200 in TS channels, 0 trigErr, no self-stim; updated AngeES EcuIoClient to send RPM (AngeES commit 6ff1db8, 7/7 tests); found+fixed "still no RPM" cause: user launcher runs repo target/release binaries, builds went to LOCALAPPDATA target -- deployed both exes | src/ext_devices/ecu_io.rs, src/launcher/{mod.rs,boards/proteus_f7.rs}, proteus_f7/config.yaml, tests/launcher_profile.rs, docs/external-io-interface.md, AngeES | feature verified live end-to-end | ~90k |
+| 15:13 | Session end: 20 writes across 11 files (2026-07-16-ecu-io-trigger-wheel-design.md, ecu_io.rs, mod.rs, adc.rs, proteus_f7.rs) | 1 reads | ~11165 tok |
+| 16:22 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/perf_measure.py | — | ~564 |
+| 16:50 | Diagnosed 1Hz TunerStudio gauge rate: firmware time runs ~1/26 realtime (8.3M instr/s at default -i 1; measured); a 3KB gauge poll costs tens of firmware-ms of USB pacing -> ~1s wall. Benchmarked -i: 8.3M (i=1) / 14.7M (i=16) / 15.8M (i=256) instr/s -- half the overhead is per-instruction NVIC bookkeeping (mem_read IT-tracking + PRIMASK/BASEPRI reads); remaining ceiling is the per-instruction code hook FFI itself. Launcher passes no -i flag (locked at 1). Also found+logged bug-147 (CDC reconnect wedge; TS works because it connects once and holds). | benchmarks, .wolf/buglog.json | diagnosis delivered, no code changed | ~60k |
+| 16:40 | Session end: 21 writes across 12 files (2026-07-16-ecu-io-trigger-wheel-design.md, ecu_io.rs, mod.rs, adc.rs, proteus_f7.rs) | 2 reads | ~24193 tok |
+| 16:57 | Session end: 21 writes across 12 files (2026-07-16-ecu-io-trigger-wheel-design.md, ecu_io.rs, mod.rs, adc.rs, proteus_f7.rs) | 2 reads | ~24193 tok |
+| 17:05 | Edited src/emulator.rs | added error handling | ~1129 |
+| 17:05 | Edited src/emulator.rs | modified mem_read() | ~200 |
+| 17:05 | Edited src/emulator.rs | 2→3 lines | ~54 |
+| 17:06 | Edited src/peripherals/nvic.rs | removed 19 lines | ~26 |
+| 17:06 | Edited src/peripherals/nvic.rs | 5→3 lines | ~28 |
+| 17:06 | Edited src/peripherals/nvic.rs | modified run_pending_interrupts() | ~381 |
+| 17:07 | Edited src/peripherals/nvic.rs | reduced (-34 lines) | ~380 |
+| 17:07 | Edited src/emulator.rs | modified pc_write_plus_emu_stop_from_a_block_hook_prevents_the_block_executing() | ~515 |
+| 17:11 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/compare_bench.py | — | ~700 |
+| 17:43 | Created ../../../AppData/Local/Temp/claude/C--Users-Tera-Documents-GitHub-stm32-emulator/d559c0c0-c3ad-4d96-8718-87937f30877f/scratchpad/wheel_gauge_bench.py | — | ~594 |
+| 17:45 | Edited CLAUDE.md | "run_pending_interrupts" → "s halfword count (" | ~112 |
+| 18:25 | Killed the per-instruction code hook (block hook redesign, commit 86f7916; halfword clock units; XPSR-ITSTATE dispatch guard replaces note_fetched_instruction; on-demand width decode for unmapped-skip; -vvvv gets dedicated hook). Honest result: ~10-25% steady-state gain only. KEY finding: emulator serves TS gauges at ~140/s / 15ms RTT even with wheel spinning -- the 1Hz is NOT emulator capacity (earlier theories poisoned by a script matching epicEFI vs rusEFI signature and by -m hidden count hook in benchmarks). bug-147 partially root-caused: usbStart clear-all wipes pre-boot USBRST; client replacement has no detach edge. Deployed binaries to target/release. | src/emulator.rs, src/peripherals/nvic.rs, CLAUDE.md, .wolf/* | committed + deployed | ~80k |

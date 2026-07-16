@@ -2686,6 +2686,109 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-07-16T17:46:59.885Z"
+    },
+    {
+      "id": "bug-152",
+      "timestamp": "2026-07-16T19:05:50.999Z",
+      "error_message": "Significant refactor of ",
+      "file": "docs/external-io-interface.md",
+      "root_cause": "5 lines replaced/restructured",
+      "fix": "Rewrote 19→52 lines (5 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T19:05:50.999Z"
+    },
+    {
+      "id": "bug-147",
+      "timestamp": "2026-07-16T16:45:00.000Z",
+      "error_message": "OPEN: USB CDC reconnect fragility. (a) A client that connects before usbStart and is later replaced leaves enumeration parked at AwaitingDeviceDescriptor forever; (b) after client churn (replace cycles), the CDC device-to-host path wedges permanently (tx counter frozen, no version broadcasts, requests received but never answered) even though is_configured() stays true. A single client that connects after boot and stays connected works fine, which is why TunerStudio works.",
+      "file": "src/peripherals/otg_fs.rs, src/ext_devices/usb_cdc_tcp.rs",
+      "root_cause": [
+        "PARTIALLY root-caused 2026-07-16 evening: (a) the firmware's driver init during usbStart() writes a clear-all to GINTSTS, wiping the one-shot virtual USBRST latched by any host attach that happened earlier -- so attach-before-usbStart + hold never enumerates; (b) client replacement swaps sockets without a detach edge (is_client_connected never goes false), so no new attach edge and no fresh USBRST -- churn after the wipe stays dead. An attach that happens AFTER usbStart settles (e.g. TunerStudio connecting seconds after boot) enumerates instantly (verified: EP0 armed ~500 instructions after attach, full enum to Configured in ~8k instructions). NOTE: several same-day 'wedge after clean post-boot attach' observations were actually a measurement-script bug (hello signature matched b'epicEFI' against rusefi.bin instances whose signature is 'rusEFI ...') -- the firmware had answered correctly. Also observed: a large instantaneous trigger_rpm step (1200->4500) can leave the decoder stuck reporting the old RPM; smooth ramps (AngeES's real behavior) do not hit this."
+      ],
+      "fix": "Not fixed. Model-side fix: re-assert USBRST (or re-run virtual_host_reset) when host_attached && !is_configured && GINTMSK unmasks device interrupts -- makes attach timing irrelevant. Workaround: connect once, a few seconds after boot, and hold.",
+      "tags": [
+        "usb",
+        "otg",
+        "cdc",
+        "reconnect",
+        "enumeration",
+        "open"
+      ],
+      "related_bugs": [
+        "bug-073"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T18:20:00.000Z"
+    },
+    {
+      "id": "bug-154",
+      "timestamp": "2026-07-16T21:05:27.931Z",
+      "error_message": "Missing error handling in unknown",
+      "file": "src/emulator.rs",
+      "root_cause": "Code path had no error handling — exceptions would propagate uncaught",
+      "fix": "Added try/catch block",
+      "tags": [
+        "auto-detected",
+        "error-handling",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T21:05:27.931Z"
+    },
+    {
+      "id": "bug-155",
+      "timestamp": "2026-07-16T21:05:39.635Z",
+      "error_message": "Wrong operator: == should be >=",
+      "file": "src/emulator.rs",
+      "root_cause": "Used \"==\" instead of \">=\"",
+      "fix": "Changed operator == → >=",
+      "tags": [
+        "auto-detected",
+        "operator-fix",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T21:05:39.635Z"
+    },
+    {
+      "id": "bug-156",
+      "timestamp": "2026-07-16T21:06:17.541Z",
+      "error_message": "Significant refactor of ",
+      "file": "src/peripherals/nvic.rs",
+      "root_cause": "16 lines replaced/restructured",
+      "fix": "Rewrote 19→3 lines (16 removed) | Also: it_block_remaining: 0,; it_block_active_now: false, | Also: if Self::are_interrupts_disabled(sys) || self.in_i; /// Call once per fetched instruction, before `run | Also: // Simulate the CPU being mid-IT-block right now, ; // note_fetched_instruction or any CPU-exposed reg",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "rs"
+      ],
+      "related_bugs": [],
+      "occurrences": 4,
+      "last_seen": "2026-07-16T21:07:32.982Z"
+    },
+    {
+      "id": "bug-157",
+      "timestamp": "2026-07-16T21:45:29.441Z",
+      "error_message": "Incorrect value in code",
+      "file": "CLAUDE.md",
+      "root_cause": "Had `run_pending_interrupts`",
+      "fix": "Changed to 's halfword count (`",
+      "tags": [
+        "auto-detected",
+        "wrong-value",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-07-16T21:45:29.441Z"
     }
   ]
 }
