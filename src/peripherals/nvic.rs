@@ -501,6 +501,30 @@ impl Peripheral for NvicWrapper {
     }
 }
 
+/// NVIC Software Trigger Interrupt Register (0xE000EF00). It sits outside
+/// both the SVD-declared NVIC block and the ISER-based slot registered in
+/// register_core_peripherals, so it needs its own registration. epicEFI's
+/// EXTI trigger-input path depends on it: handleExtiIsr() queues each edge
+/// and then writes the I2C1_EV IRQ number to STIR to chain the
+/// deferred-processing interrupt that feeds the trigger decoder
+/// (digital_input_exti.cpp's triggerInterrupt()). Without this register the
+/// write lands in unmapped space and trigger edges pile up in the firmware's
+/// 32-entry queue, never reaching the decoder.
+pub struct NvicStir;
+
+impl Peripheral for NvicStir {
+    fn read(&mut self, _sys: &System, _offset: u32) -> u32 {
+        0 // STIR is write-only
+    }
+
+    fn write(&mut self, sys: &System, offset: u32, value: u32) {
+        if offset == 0 {
+            // INTID is 9 bits: the external interrupt number to pend.
+            sys.p.nvic.borrow_mut().set_intr_pending((value & 0x1ff) as i32);
+        }
+    }
+}
+
 /*
 0xE000E100 B  REGISTER ISER0 (rw): Interrupt Set-Enable Register
 0xE000E104 B  REGISTER ISER1 (rw): Interrupt Set-Enable Register
@@ -553,13 +577,24 @@ mod tests {
         ArmCpuModel, RegisterARM, Unicorn,
     };
 
-    use super::{Nvic, Peripheral, XPSR_ITSTATE_MASK};
+    use super::{Nvic, NvicStir, Peripheral, XPSR_ITSTATE_MASK};
     use crate::{ext_devices::ExtDevices, peripherals::Peripherals, system::System};
 
     fn test_parts() -> (Unicorn<'static, ()>, Rc<Peripherals>, Rc<ExtDevices>) {
         let mut uc = Unicorn::new(Arch::ARM, Mode::THUMB | Mode::LITTLE_ENDIAN).unwrap();
         uc.ctl_set_cpu_model(ArmCpuModel::CORTEX_M4 as i32).unwrap();
         (uc, Rc::new(Peripherals::default()), Rc::new(ExtDevices::default()))
+    }
+
+    #[test]
+    fn stir_write_pends_the_requested_external_interrupt() {
+        let (mut uc, p, d) = test_parts();
+        let sys = System { uc: RefCell::new(&mut uc), p: p.clone(), d };
+
+        let mut stir = NvicStir;
+        stir.write(&sys, 0, 31); // I2C1_EV_IRQn, as epicEFI's triggerInterrupt() writes
+
+        assert_eq!(p.nvic.borrow_mut().get_and_clear_next_intr_pending(), Some(31));
     }
 
     #[test]

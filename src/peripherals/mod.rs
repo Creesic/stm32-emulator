@@ -321,6 +321,14 @@ impl Peripherals {
                 peripheral: RefCell::new(peripheral),
             });
         }
+        // See NvicStir's doc comment: STIR (0xE000EF00) is not part of any
+        // SVD-declared block, and epicEFI's EXTI trigger path writes it to
+        // chain its deferred edge-processing interrupt.
+        self.peripherals.push(PeripheralSlot {
+            start: 0xe000_ef00,
+            end: 0xe000_ef04,
+            peripheral: RefCell::new(Box::new(NvicStir)),
+        });
     }
 
     pub fn finish_registration(&mut self) {
