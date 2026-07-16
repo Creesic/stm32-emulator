@@ -61,7 +61,7 @@ There's no separate lint config. Tests are split across two crate targets:
 **Entry flow**: `main.rs` parses CLI args, deserializes the YAML config (`config.rs`) and the SVD file (`svd_parser`), then calls `emulator::run_emulator`.
 
 **Emulator core** (`emulator.rs`): creates a Unicorn ARM instance in `Mode::THUMB` and then explicitly selects the Cortex-M model (`ctl_set_cpu_model`, from `config.cpu.model`: `cortex-m4`/`cortex-m7`) — Unicorn 2.1.5 treats the older `Mode::MCLASS` flag as a forced Cortex-M33 selection, so the model must be set this way instead. It then installs three hooks and runs `uc.emu_start` in a loop (re-entering after handled faults):
-- A **code hook** fires on every instruction: advances the NVIC (`run_pending_interrupts` every `interrupt_period` instructions), optionally disassembles/logs the instruction (`-vvvv`), and periodically pumps SDL events / redraws framebuffer windows.
+- A **block hook** fires once per translation block: advances the emulated clock by the block's halfword count (`NUM_INSTRUCTIONS`, the timebase every peripheral derives from), runs the NVIC (`run_pending_interrupts`, gated by `interrupt_period`), and periodically pumps SDL events / ext-device TCP polls / peripheral deadlines. A separate per-instruction code hook is installed only at `-vvvv` for disassembly tracing.
 - An **interrupt hook** handles Unicorn exception numbers; `8` ("return from exception") is the main case, delegating to `Nvic::return_from_interrupt`.
 - A **memory hook** on unmapped access logs a warning and skips the faulting instruction instead of crashing — vendor firmware often touches addresses this emulator doesn't model, and treating that as fatal would stop emulation too early.
 

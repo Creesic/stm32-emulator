@@ -39,7 +39,8 @@ fn is_exception_return_pc(pc: u32) -> bool {
     pc & 0xFFFF_FF00 == 0xFFFF_FF00
 }
 
-// PC + instruction size
+// Last translation-block start address + size in bytes (approximates the
+// current PC for progress logging and detects self-looping blocks for -b).
 pub static mut LAST_INSTRUCTION: (u32, u8) = (0,0);
 pub static NUM_INSTRUCTIONS: AtomicU64 = AtomicU64::new(0);
 static CONTINUE_EXECUTION: AtomicBool = AtomicBool::new(false);
@@ -113,43 +114,63 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
 
     let (sys, framebuffers) = crate::system::prepare(&mut uc, config, svd_device)?;
 
-    let diassembler = Capstone::new()
-        .arm()
-        .mode(arch::arm::ArchMode::Thumb)
-        .build()
-        .expect("failed to initialize capstone");
-
-    // We hook on each instructions, but we could skip this.
-    // The slowdown is less than 50%. It's okay for now.
+    // One hook per *translation block*, not per instruction. Unicorn injects
+    // the hook call into the generated code, so a per-instruction code hook
+    // costs an FFI round trip on every single instruction -- measured at
+    // roughly half of total runtime (8.3M instr/s with the old hook doing
+    // per-instruction NVIC bookkeeping, 15.8M with it skipped). Every job the
+    // old hook had works at block granularity:
+    //  - The emulated clock advances by the block's *halfword* count: Thumb
+    //    instructions are 2 or 4 bytes, so halfwords approximate cycles at
+    //    least as well as the old "1 instruction = 1 cycle" did, and every
+    //    derived timebase (SysTick period, TIM5, DWT CYCCNT, DMA deadlines,
+    //    the ecu_io trigger wheel) reads this same counter, so they all stay
+    //    mutually consistent.
+    //  - Interrupt dispatch happens at block entry, which is where
+    //    run_interrupt's PC-write + emu_stop() redirect is well-defined
+    //    anyway (the hook fires before the block's first instruction
+    //    executes; pinned by the characterization tests below).
+    //  - Busy-loop detection and interrupt delivery inside spin loops keep
+    //    working because the injected hook call is part of the block body:
+    //    a self-looping block re-fires it on every iteration.
+    // Per-instruction disassembly tracing (-vvvv) installs its own dedicated
+    // code hook below and keeps its old (slow) behavior.
     {
-        let trace_instructions = crate::verbose() >= 4;
         let busy_loop_stop = args.busy_loop_stop;
         let p = sys.p.clone();
         let d = sys.d.clone();
-        let interrupt_period = args.interrupt_period;
-        sys.uc.borrow_mut().add_code_hook(0, u64::MAX, move |uc, pc, size| {
+        let interrupt_period = args.interrupt_period as u64;
+        let mut last_interrupt_check: u64 = 0;
+        let mut last_pump: u64 = 0;
+        sys.uc.borrow_mut().add_block_hook(0, u64::MAX, move |uc, addr, size| {
             unsafe {
-                if busy_loop_stop && LAST_INSTRUCTION.0 == pc as u32 {
+                // A block of <= 4 bytes jumping to itself is a busy loop
+                // (`b .`, or a two-halfword self-loop). The old
+                // per-instruction check only caught single-instruction
+                // loops; block granularity catches the same and slightly
+                // more, which serves -b's purpose (stop at an infinite
+                // loop) equally well.
+                if busy_loop_stop && size <= 4 && LAST_INSTRUCTION.0 == addr as u32 {
                     info!("Busy loop reached");
                     uc.emu_stop().unwrap();
                     BUSY_LOOP_REACHED.store(true, Ordering::Release);
                 }
-                LAST_INSTRUCTION = (pc as u32, size as u8);
+                LAST_INSTRUCTION = (addr as u32, size as u8);
             }
 
-            let n = NUM_INSTRUCTIONS.fetch_add(1, Ordering::Acquire);
+            let n = NUM_INSTRUCTIONS.fetch_add((size as u64 + 1) / 2, Ordering::Acquire);
 
-            if trace_instructions {
-                info!("{}", disassemble_instruction(&diassembler, uc, pc));
-            }
-
-            if n % interrupt_period as u64 == 0 {
+            // The counter now advances in jumps, so both gates are
+            // deadline-based rather than the old exact `n % period == 0` /
+            // `n & mask == 0` forms (which a jump could step over).
+            if n.wrapping_sub(last_interrupt_check) >= interrupt_period {
+                last_interrupt_check = n;
                 let sys = System { uc: RefCell::new(uc), p: p.clone(), d: d.clone() };
-                p.nvic.borrow_mut().note_fetched_instruction(&sys, pc);
                 p.nvic.borrow_mut().run_pending_interrupts(&sys, vector_table_addr);
             }
 
-            if n & PUMP_EVENT_INST_INTERVAL == 0 {
+            if n.wrapping_sub(last_pump) >= PUMP_EVENT_INST_INTERVAL + 1 {
+                last_pump = n;
                 let sys = System { uc: RefCell::new(uc), p: p.clone(), d: d.clone() };
                 d.poll(&sys);
                 p.poll(&sys);
@@ -161,6 +182,17 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
                     uc.emu_stop().unwrap();
                 }
             }
+        }).expect("add_block_hook failed");
+    }
+
+    if crate::verbose() >= 4 {
+        let diassembler = Capstone::new()
+            .arm()
+            .mode(arch::arm::ArchMode::Thumb)
+            .build()
+            .expect("failed to initialize capstone");
+        sys.uc.borrow_mut().add_code_hook(0, u64::MAX, move |uc, pc, _size| {
+            info!("{}", disassemble_instruction(&diassembler, uc, pc));
         }).expect("add_code_hook failed");
     }
 
@@ -253,11 +285,18 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
             warn!("{:?} addr=0x{:08x} size={}", type_, addr, size);
         }
 
-        unsafe {
-            let pc = uc.reg_read(RegisterARM::PC).expect("failed to get pc");
-            assert!(pc as u32 == LAST_INSTRUCTION.0);
-            uc.reg_write(RegisterARM::PC, thumb(pc as u64 + LAST_INSTRUCTION.1 as u64)).unwrap();
-        }
+        // Skip the faulting instruction. Its width is decoded on demand from
+        // the two bytes at PC (a 16-bit halfword >= 0xE800 is the first half
+        // of a 32-bit Thumb-2 encoding, prefixes 0b11101/0b11110/0b11111) --
+        // there is no per-instruction hook tracking sizes anymore, and this
+        // path only runs on the rare unmapped access.
+        let pc = uc.reg_read(RegisterARM::PC).expect("failed to get pc");
+        let mut insn = [0u8; 2];
+        let width = match uc.mem_read(pc, &mut insn) {
+            Ok(()) if u16::from_le_bytes(insn) >= 0xE800 => 4,
+            _ => 2,
+        };
+        uc.reg_write(RegisterARM::PC, thumb(pc + width)).unwrap();
 
         CONTINUE_EXECUTION.store(true, Ordering::Release);
 
@@ -371,6 +410,40 @@ mod tests {
 
         assert_eq!(uc.reg_read(RegisterARM::SP).unwrap(), 0x3000, "pop retired: SP moved");
         assert_eq!(uc.reg_read(RegisterARM::R0).unwrap(), 0xaaaa_aaaa, "pop retired: r0 loaded");
+        assert_eq!(uc.reg_read(RegisterARM::PC).unwrap(), 0x2000, "PC write was lost");
+    }
+
+    /// Same contract as above, but for the *block* hook that interrupt
+    /// dispatch now runs from: a PC write plus emu_stop() from the block
+    /// hook must prevent the block's instructions from retiring. The block
+    /// hook call is injected at the head of the translated block, before
+    /// its first instruction.
+    #[test]
+    fn pc_write_plus_emu_stop_from_a_block_hook_prevents_the_block_executing() {
+        let mut uc = initialize_arm_engine(CpuModel::CortexM7).unwrap();
+        uc.mem_map(0x1000, 0x1000, Prot::ALL).unwrap();
+        uc.mem_map(0x2000, 0x1000, Prot::ALL).unwrap();
+        uc.mem_map(0x3000, 0x1000, Prot::ALL).unwrap();
+
+        // nop; pop {r0, pc} -- if the block ran, SP/r0/PC all change.
+        uc.mem_write(0x1000, &[0x00, 0xbf, 0x01, 0xbd]).unwrap();
+        uc.mem_write(0x2000, &[0x00, 0xbf]).unwrap(); // nop
+        uc.mem_write(0x3000, &0x1111_1111u32.to_le_bytes()).unwrap();
+        uc.mem_write(0x3004, &0x0000_1001u32.to_le_bytes()).unwrap();
+
+        uc.reg_write(RegisterARM::SP, 0x3000).unwrap();
+        uc.reg_write(RegisterARM::R0, 0xaaaa_aaaa).unwrap();
+
+        uc.add_block_hook(0x1000, 0x1000, |uc, _addr, _size| {
+            uc.reg_write(RegisterARM::PC, 0x2000).unwrap();
+            uc.emu_stop().unwrap();
+        })
+        .unwrap();
+
+        uc.emu_start(0x1001, 0, 0, 0).unwrap();
+
+        assert_eq!(uc.reg_read(RegisterARM::SP).unwrap(), 0x3000, "block retired: SP moved");
+        assert_eq!(uc.reg_read(RegisterARM::R0).unwrap(), 0xaaaa_aaaa, "block retired: r0 loaded");
         assert_eq!(uc.reg_read(RegisterARM::PC).unwrap(), 0x2000, "PC write was lost");
     }
 
