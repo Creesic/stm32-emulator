@@ -1,6 +1,9 @@
 # rusEFI Proteus F767 Bring-up
 
-From this directory, initialize the local ignored firmware assets:
+The pinned `rusefi.bin` firmware image and `STM32F767.svd` peripheral
+description are included in the repository so this harness works from a clean
+checkout. To replace them with another local firmware snapshot and the latest
+SVD, run:
 
 ```powershell
 .\setup.ps1
