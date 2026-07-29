@@ -20,6 +20,7 @@ pub mod sw_spi;
 pub mod systick;
 pub mod tim11;
 pub mod tim5;
+pub mod tim6;
 pub mod usart;
 
 use adc::*;
@@ -43,6 +44,7 @@ use sw_spi::*;
 use systick::*;
 use tim11::*;
 use tim5::*;
+use tim6::*;
 use usart::*;
 
 use std::{
@@ -147,14 +149,18 @@ mod tests {
     fn core_systick_model_covers_control_register() {
         let mut peripherals = super::Peripherals::default();
         peripherals.register_core_peripherals();
-        assert!(super::Peripherals::get_peripheral(&peripherals.peripherals, 0xe000_e010).is_some());
+        assert!(
+            super::Peripherals::get_peripheral(&peripherals.peripherals, 0xe000_e010).is_some()
+        );
     }
 
     #[test]
     fn core_scb_model_covers_interrupt_control_register() {
         let mut peripherals = super::Peripherals::default();
         peripherals.register_core_peripherals();
-        assert!(super::Peripherals::get_peripheral(&peripherals.peripherals, 0xe000_ed04).is_some());
+        assert!(
+            super::Peripherals::get_peripheral(&peripherals.peripherals, 0xe000_ed04).is_some()
+        );
     }
 
     #[test]
@@ -198,6 +204,43 @@ mod tests {
     }
 
     #[test]
+    fn sub_word_writes_preserve_adjacent_register_bytes() {
+        // ChibiOS programs NVIC priorities through byte stores. IPR12 packs
+        // four IRQ priorities into one word, so each store must update only
+        // its addressed byte. Clobbering the other three can reset an
+        // already-configured DMA IRQ to priority zero.
+        use std::{cell::RefCell, rc::Rc};
+
+        use unicorn_engine::{
+            unicorn_const::{Arch, Mode},
+            ArmCpuModel, Unicorn,
+        };
+
+        use crate::{ext_devices::ExtDevices, system::System};
+
+        let mut peripherals = super::Peripherals::default();
+        peripherals.register_core_peripherals();
+        let peripherals = Rc::new(peripherals);
+
+        let mut uc = Unicorn::new(Arch::ARM, Mode::THUMB | Mode::LITTLE_ENDIAN).unwrap();
+        uc.ctl_set_cpu_model(ArmCpuModel::CORTEX_M4 as i32).unwrap();
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p: peripherals.clone(),
+            d: Rc::new(ExtDevices::default()),
+        };
+
+        peripherals.write(&sys, 0xe000_e430, 4, 0x4030_2010);
+        peripherals.write(&sys, 0xe000_e432, 1, 0xaa);
+        assert_eq!(peripherals.read(&sys, 0xe000_e430, 4), 0x40aa_2010);
+
+        // The aligned first byte is just as important: the old path treated
+        // it as a complete word and cleared bytes 1 through 3.
+        peripherals.write(&sys, 0xe000_e430, 1, 0x55);
+        assert_eq!(peripherals.read(&sys, 0xe000_e430, 4), 0x40aa_2055);
+    }
+
+    #[test]
     fn core_nvic_model_covers_the_interrupt_priority_array() {
         // Boards whose SVD omits "NVIC" entirely (e.g. STM32F767) would
         // otherwise never route reads/writes to Nvic's IPR array at all --
@@ -205,7 +248,9 @@ mod tests {
         // assertInterruptPriority(), not just "some address inside NVIC".
         let mut peripherals = super::Peripherals::default();
         peripherals.register_core_peripherals();
-        assert!(super::Peripherals::get_peripheral(&peripherals.peripherals, 0xe000_e400).is_some());
+        assert!(
+            super::Peripherals::get_peripheral(&peripherals.peripherals, 0xe000_e400).is_some()
+        );
     }
 }
 
@@ -262,6 +307,7 @@ impl Peripherals {
             .or_else(|| Flash::new(&name))
             .or_else(|| Tim11::new(&name))
             .or_else(|| Tim5::new(&name))
+            .or_else(|| Tim6::new(&name))
             .or_else(|| Can::new(&name))
             .or_else(|| I2c::new(&name))
             .or_else(|| Dma::new(&name))
@@ -524,9 +570,12 @@ impl Peripherals {
 
         assert!(byte_offset + size <= 4);
 
-        if byte_offset != 0 {
-            let v = self.read(sys, addr, 4);
-            value = (value << 8 * byte_offset) | (v & (0xFFFF_FFFF >> (32 - 8 * byte_offset)));
+        if Self::is_register(addr) && size < 4 {
+            let old_value = self.read(sys, addr, 4);
+            let shift = 8 * u32::from(byte_offset);
+            let width = 8 * u32::from(size);
+            let write_mask = ((1_u32 << width) - 1) << shift;
+            value = (old_value & !write_mask) | ((value << shift) & write_mask);
         }
 
         if let Some(p) = Self::get_peripheral(&self.peripherals, addr) {

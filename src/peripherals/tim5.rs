@@ -177,7 +177,11 @@ mod tests {
     fn test_parts() -> (Unicorn<'static, ()>, Rc<Peripherals>, Rc<ExtDevices>) {
         let mut uc = Unicorn::new(Arch::ARM, Mode::THUMB | Mode::LITTLE_ENDIAN).unwrap();
         uc.ctl_set_cpu_model(ArmCpuModel::CORTEX_M4 as i32).unwrap();
-        (uc, Rc::new(Peripherals::default()), Rc::new(ExtDevices::default()))
+        (
+            uc,
+            Rc::new(Peripherals::default()),
+            Rc::new(ExtDevices::default()),
+        )
     }
 
     // NUM_INSTRUCTIONS is a single process-wide static that other tests may
@@ -247,7 +251,11 @@ mod tests {
         // a compare match on channel 1, latching SR before rusEFI has ever
         // used the channel for real (see setHardwareSchedulerTimer()).
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
         let mut tim5 = Tim5::default();
 
         tim5.write_cr1(1); // CEN
@@ -261,7 +269,11 @@ mod tests {
     #[test]
     fn compare_match_sets_status_flag_but_does_not_interrupt_while_masked() {
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
         let mut tim5 = Tim5::default();
 
         tim5.write_cr1(1); // CEN
@@ -285,7 +297,11 @@ mod tests {
     #[test]
     fn compare_match_raises_tim5_interrupt_once_the_mask_is_enabled() {
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
         let mut tim5 = Tim5::default();
 
         tim5.write_cr1(1); // CEN

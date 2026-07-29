@@ -10,6 +10,8 @@ use std::{
 use anyhow::{bail, Context as _, Result};
 use serde::Deserialize;
 
+use super::embedded_cdc::{take_pending_device_link, EmbeddedCdcLink, EmbeddedCdcStage};
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct UsbCdcTcpConfig {
     pub peripheral: String,
@@ -19,7 +21,8 @@ pub struct UsbCdcTcpConfig {
 
 pub struct UsbCdcTcp {
     pub config: UsbCdcTcpConfig,
-    listener: TcpListener,
+    listener: Option<TcpListener>,
+    embedded: Option<EmbeddedCdcLink>,
     client: Option<TcpStream>,
     // When the current client connected -- a brand new connection only
     // replaces it once this has aged past stale_client_grace_period (see
@@ -40,6 +43,23 @@ impl UsbCdcTcp {
             bail!("usb_cdc_tcp max_buffered_bytes must be positive");
         }
 
+        if let Some(link) = take_pending_device_link() {
+            link.attach_device();
+            return Ok(Self {
+                config,
+                listener: None,
+                embedded: Some(link),
+                client: None,
+                client_connected_at: None,
+                stale_client_grace_period: Self::STALE_CLIENT_GRACE_PERIOD,
+                to_device: VecDeque::new(),
+                from_device: VecDeque::new(),
+                rx_total: 0,
+                tx_total: 0,
+                last_heartbeat_at: None,
+            });
+        }
+
         let listener = TcpListener::bind(&config.listen)
             .with_context(|| format!("Failed to listen for USB CDC TCP at {}", config.listen))?;
         listener
@@ -48,7 +68,8 @@ impl UsbCdcTcp {
 
         Ok(Self {
             config,
-            listener,
+            listener: Some(listener),
+            embedded: None,
             client: None,
             client_connected_at: None,
             stale_client_grace_period: Self::STALE_CLIENT_GRACE_PERIOD,
@@ -67,11 +88,16 @@ impl UsbCdcTcp {
 
     pub fn local_addr(&self) -> Result<SocketAddr> {
         self.listener
+            .as_ref()
+            .context("Embedded CDC has no TCP listener")?
             .local_addr()
             .context("Failed to read USB CDC listener address")
     }
 
     pub fn poll(&mut self) -> Result<()> {
+        if self.embedded.is_some() {
+            return Ok(());
+        }
         self.accept_clients()?;
         self.receive_from_client()?;
         self.send_to_client()?;
@@ -105,19 +131,50 @@ impl UsbCdcTcp {
     }
 
     pub fn push_from_device(&mut self, bytes: &[u8]) {
-        Self::push_capped(
-            &mut self.from_device,
-            bytes,
-            self.config.max_buffered_bytes,
-        );
+        if let Some(link) = self.embedded.as_ref() {
+            link.write_from_device(bytes);
+            return;
+        }
+        Self::push_capped(&mut self.from_device, bytes, self.config.max_buffered_bytes);
     }
 
     pub fn take_for_device(&mut self, maximum: usize) -> Vec<u8> {
-        self.to_device.drain(..maximum.min(self.to_device.len())).collect()
+        if let Some(link) = self.embedded.as_ref() {
+            return link.read_for_device(maximum);
+        }
+        self.to_device
+            .drain(..maximum.min(self.to_device.len()))
+            .collect()
+    }
+
+    pub fn set_protocol_stage(&self, stage: EmbeddedCdcStage) {
+        if let Some(link) = self.embedded.as_ref() {
+            link.set_protocol_stage(stage);
+        }
     }
 
     pub fn is_client_connected(&self) -> bool {
-        self.client.is_some()
+        self.embedded
+            .as_ref()
+            .map_or_else(|| self.client.is_some(), EmbeddedCdcLink::device_present)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_embedded_for_test(config: UsbCdcTcpConfig, link: EmbeddedCdcLink) -> Self {
+        link.attach_device();
+        Self {
+            config,
+            listener: None,
+            embedded: Some(link),
+            client: None,
+            client_connected_at: None,
+            stale_client_grace_period: Self::STALE_CLIENT_GRACE_PERIOD,
+            to_device: VecDeque::new(),
+            from_device: VecDeque::new(),
+            rx_total: 0,
+            tx_total: 0,
+            last_heartbeat_at: None,
+        }
     }
 
     // A client that goes silent without a clean TCP close (observed live: a
@@ -136,13 +193,18 @@ impl UsbCdcTcp {
 
     fn accept_clients(&mut self) -> Result<()> {
         loop {
-            match self.listener.accept() {
+            let accepted = match self.listener.as_ref() {
+                Some(listener) => listener.accept(),
+                None => return Ok(()),
+            };
+            match accepted {
                 Ok((client, address)) => {
                     if self.client.is_some() {
                         let existing_age = self.client_connected_at.map(|t| t.elapsed());
-                        let still_within_grace_period = self
-                            .client_connected_at
-                            .is_some_and(|connected_at| connected_at.elapsed() < self.stale_client_grace_period);
+                        let still_within_grace_period =
+                            self.client_connected_at.is_some_and(|connected_at| {
+                                connected_at.elapsed() < self.stale_client_grace_period
+                            });
                         if still_within_grace_period {
                             info!("[usb-instr] second connection from {address} while holding a client (age {existing_age:?}, rx {} tx {}); REJECTING new one (grace period)", self.rx_total, self.tx_total);
                             continue;
@@ -182,6 +244,21 @@ impl UsbCdcTcp {
                     }
                     Ok(count) => {
                         self.rx_total += count;
+                        if crate::cdc_trace() {
+                            let b = &buffer[..count];
+                            let head: Vec<String> =
+                                b.iter().take(12).map(|x| format!("{x:02x}")).collect();
+                            let cmd = b.iter().find(|&&x| x != 0).copied().unwrap_or(0);
+                            info!(
+                                "[cdc-trace] <== REQ {count}B cmd='{}' head=[{}]",
+                                if (32..127).contains(&cmd) {
+                                    cmd as char
+                                } else {
+                                    '?'
+                                },
+                                head.join(" "),
+                            );
+                        }
                         Self::push_capped(
                             &mut self.to_device,
                             &buffer[..count],
@@ -214,6 +291,7 @@ impl UsbCdcTcp {
         let connected_at = self.client_connected_at;
         let mut disconnected = false;
         let mut disconnect_reason = "";
+        let mut sent_this_call = 0usize;
         if let Some(client) = self.client.as_mut() {
             while !self.from_device.is_empty() {
                 let (first, second) = self.from_device.as_slices();
@@ -226,6 +304,7 @@ impl UsbCdcTcp {
                     }
                     Ok(count) => {
                         self.tx_total += count;
+                        sent_this_call += count;
                         self.from_device.drain(..count);
                     }
                     Err(error) if error.kind() == ErrorKind::WouldBlock => break,
@@ -237,6 +316,9 @@ impl UsbCdcTcp {
                     Err(error) => return Err(error).context("Failed to write USB CDC TCP client"),
                 }
             }
+        }
+        if sent_this_call > 0 && crate::cdc_trace() {
+            info!("[cdc-trace] ==> REP {sent_this_call}B");
         }
         if disconnected {
             info!(
@@ -269,6 +351,14 @@ impl UsbCdcTcp {
                 queue.pop_front();
             }
             queue.push_back(byte);
+        }
+    }
+}
+
+impl Drop for UsbCdcTcp {
+    fn drop(&mut self) {
+        if let Some(link) = self.embedded.as_ref() {
+            link.detach_device();
         }
     }
 }

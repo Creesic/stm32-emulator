@@ -87,7 +87,9 @@ pub enum ProcessState {
 }
 
 fn classify_exit(status: std::process::ExitStatus) -> ProcessState {
-    ProcessState::Exited { success: status.success() }
+    ProcessState::Exited {
+        success: status.success(),
+    }
 }
 
 pub struct RunningEmulator {

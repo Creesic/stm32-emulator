@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::{sync::Mutex, rc::Rc, cell::RefCell};
+use std::{cell::RefCell, rc::Rc, sync::Mutex};
 
 use sdl2::{
-    event::Event,
-    keyboard::Keycode,
-    EventPump, VideoSubsystem, render::Canvas, video::Window, pixels,
+    event::Event, keyboard::Keycode, pixels, render::Canvas, video::Window, EventPump,
+    VideoSubsystem,
 };
 
 lazy_static::lazy_static! {
@@ -39,11 +38,16 @@ impl SdlEngine {
 
         let event_pump = sdl_context.event_pump().unwrap();
 
-        Self { event_pump, video_subsystem }
+        Self {
+            event_pump,
+            video_subsystem,
+        }
     }
 
     pub fn new_canvas(&mut self, title: &str, width: u32, height: u32) -> Canvas<Window> {
-        let window = self.video_subsystem.window(title, width, height)
+        let window = self
+            .video_subsystem
+            .window(title, width, height)
             .resizable()
             .build()
             .unwrap();
@@ -61,15 +65,24 @@ impl SdlEngine {
     pub fn pump_events(&mut self, framebuffers: &[Rc<RefCell<super::Sdl>>]) -> bool {
         for event in self.event_pump.poll_iter() {
             match event {
-                Event::Quit {..} |
-                Event::KeyDown { keycode: Some(Keycode::Q), .. } |
-                Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Q),
+                    ..
+                }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => {
                     return false;
-                },
-                Event::MouseMotion { ref window_id, .. } |
-                Event::MouseButtonDown { ref window_id, .. } |
-                Event::MouseButtonUp { ref window_id, .. } => {
-                    if let Some(fb) = framebuffers.iter().find(|fb| fb.borrow().window_id == *window_id) {
+                }
+                Event::MouseMotion { ref window_id, .. }
+                | Event::MouseButtonDown { ref window_id, .. }
+                | Event::MouseButtonUp { ref window_id, .. } => {
+                    if let Some(fb) = framebuffers
+                        .iter()
+                        .find(|fb| fb.borrow().window_id == *window_id)
+                    {
                         fb.borrow_mut().process_event(event);
                     }
                 }

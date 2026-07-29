@@ -64,7 +64,10 @@ mod tests {
     #[test]
     fn init_mode_request_is_acknowledged_immediately() {
         // ChibiOS can_lld_start: MCR = CAN_MCR_INRQ, then wait for MSR.INAK.
-        assert_eq!(Can::msr_after_mcr_write(0x0000_0001) & 0x0000_0001, 0x0000_0001);
+        assert_eq!(
+            Can::msr_after_mcr_write(0x0000_0001) & 0x0000_0001,
+            0x0000_0001
+        );
     }
 
     #[test]
@@ -75,7 +78,10 @@ mod tests {
 
     #[test]
     fn sleep_request_is_acknowledged_immediately() {
-        assert_eq!(Can::msr_after_mcr_write(0x0000_0002) & 0x0000_0002, 0x0000_0002);
+        assert_eq!(
+            Can::msr_after_mcr_write(0x0000_0002) & 0x0000_0002,
+            0x0000_0002
+        );
     }
 
     #[test]

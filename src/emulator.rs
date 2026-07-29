@@ -1,11 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::{mem::MaybeUninit, sync::atomic::{AtomicU64, Ordering, AtomicBool}, cell::RefCell};
-use svd_parser::svd::Device as SvdDevice;
-use unicorn_engine::{unicorn_const::{Arch, Mode, HookType, MemType}, ArmCpuModel, Unicorn, RegisterARM};
-use crate::{config::{Config, CpuModel}, util::UniErr, Args, system::System, framebuffers::sdl_engine::{PUMP_EVENT_INST_INTERVAL, SDL}};
-use anyhow::{Context as _, Result, bail};
+use crate::{
+    config::{Config, CpuModel},
+    framebuffers::sdl_engine::{PUMP_EVENT_INST_INTERVAL, SDL},
+    system::System,
+    util::UniErr,
+    Args,
+};
+use anyhow::{bail, Context as _, Result};
 use capstone::prelude::*;
+use std::{
+    cell::RefCell,
+    mem::MaybeUninit,
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+};
+use svd_parser::svd::Device as SvdDevice;
+use unicorn_engine::{
+    unicorn_const::{Arch, HookType, MemType, Mode},
+    ArmCpuModel, RegisterARM, Unicorn,
+};
 
 #[repr(C)]
 struct VectorTable {
@@ -17,7 +30,10 @@ impl VectorTable {
     pub fn from_memory(uc: &Unicorn<()>, addr: u32) -> Result<Self> {
         unsafe {
             let mut self_ = MaybeUninit::<Self>::uninit();
-            let buf = std::slice::from_raw_parts_mut(self_.as_mut_ptr() as *mut u8, std::mem::size_of::<Self>());
+            let buf = std::slice::from_raw_parts_mut(
+                self_.as_mut_ptr() as *mut u8,
+                std::mem::size_of::<Self>(),
+            );
             uc.mem_read(addr.into(), buf).map_err(UniErr)?;
             Ok(self_.assume_init())
         }
@@ -41,7 +57,7 @@ fn is_exception_return_pc(pc: u32) -> bool {
 
 // Last translation-block start address + size in bytes (approximates the
 // current PC for progress logging and detects self-looping blocks for -b).
-pub static mut LAST_INSTRUCTION: (u32, u8) = (0,0);
+pub static mut LAST_INSTRUCTION: (u32, u8) = (0, 0);
 pub static NUM_INSTRUCTIONS: AtomicU64 = AtomicU64::new(0);
 static CONTINUE_EXECUTION: AtomicBool = AtomicBool::new(false);
 static BUSY_LOOP_REACHED: AtomicBool = AtomicBool::new(false);
@@ -74,7 +90,11 @@ fn disassemble_instruction(diassembler: &Capstone, uc: &Unicorn<()>, pc: u64) ->
 
     if let Ok(disasm) = diassembler.disasm_count(&instr, pc, 1) {
         if let Some(instr) = disasm.first() {
-            return format!("{:5} {}", instr.mnemonic().unwrap(), instr.op_str().unwrap());
+            return format!(
+                "{:5} {}",
+                instr.mnemonic().unwrap(),
+                instr.op_str().unwrap()
+            );
         }
     }
 
@@ -89,7 +109,7 @@ pub fn dump_stack(uc: &mut Unicorn<()>, count: usize) {
     let mut sp = uc.reg_read(RegisterARM::SP).unwrap();
 
     for _ in 0..count {
-        let mut v = [0,0,0,0];
+        let mut v = [0, 0, 0, 0];
         if uc.mem_read(sp, &mut v).is_err() {
             info!("stack dump finished due to mem read error");
             return;
@@ -107,7 +127,23 @@ pub fn dump_stack(uc: &mut Unicorn<()>, count: usize) {
     }
 }
 
-pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result<()> {
+pub(crate) fn request_stop() {
+    STOP_REQUESTED.store(true, Ordering::Release);
+}
+
+pub(crate) fn instruction_count() -> u64 {
+    NUM_INSTRUCTIONS.load(Ordering::Acquire)
+}
+
+pub(crate) fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result<()> {
+    // Every embedded start is a fresh firmware session. These flags used to
+    // be initialized only once by process startup, which made stop/restart in
+    // a long-lived host impossible.
+    NUM_INSTRUCTIONS.store(0, Ordering::Release);
+    CONTINUE_EXECUTION.store(false, Ordering::Release);
+    BUSY_LOOP_REACHED.store(false, Ordering::Release);
+    STOP_REQUESTED.store(false, Ordering::Release);
+
     let mut uc = initialize_arm_engine(config.cpu.model)?;
 
     let vector_table_addr = config.cpu.vector_table;
@@ -142,47 +178,60 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
         let interrupt_period = args.interrupt_period as u64;
         let mut last_interrupt_check: u64 = 0;
         let mut last_pump: u64 = 0;
-        sys.uc.borrow_mut().add_block_hook(0, u64::MAX, move |uc, addr, size| {
-            unsafe {
-                // A block of <= 4 bytes jumping to itself is a busy loop
-                // (`b .`, or a two-halfword self-loop). The old
-                // per-instruction check only caught single-instruction
-                // loops; block granularity catches the same and slightly
-                // more, which serves -b's purpose (stop at an infinite
-                // loop) equally well.
-                if busy_loop_stop && size <= 4 && LAST_INSTRUCTION.0 == addr as u32 {
-                    info!("Busy loop reached");
-                    uc.emu_stop().unwrap();
-                    BUSY_LOOP_REACHED.store(true, Ordering::Release);
+        sys.uc
+            .borrow_mut()
+            .add_block_hook(0, u64::MAX, move |uc, addr, size| {
+                unsafe {
+                    // A block of <= 4 bytes jumping to itself is a busy loop
+                    // (`b .`, or a two-halfword self-loop). The old
+                    // per-instruction check only caught single-instruction
+                    // loops; block granularity catches the same and slightly
+                    // more, which serves -b's purpose (stop at an infinite
+                    // loop) equally well.
+                    if busy_loop_stop && size <= 4 && LAST_INSTRUCTION.0 == addr as u32 {
+                        info!("Busy loop reached");
+                        uc.emu_stop().unwrap();
+                        BUSY_LOOP_REACHED.store(true, Ordering::Release);
+                    }
+                    LAST_INSTRUCTION = (addr as u32, size as u8);
                 }
-                LAST_INSTRUCTION = (addr as u32, size as u8);
-            }
 
-            let n = NUM_INSTRUCTIONS.fetch_add((size as u64 + 1) / 2, Ordering::Acquire);
+                let n = NUM_INSTRUCTIONS.fetch_add((size as u64 + 1) / 2, Ordering::Acquire);
 
-            // The counter now advances in jumps, so both gates are
-            // deadline-based rather than the old exact `n % period == 0` /
-            // `n & mask == 0` forms (which a jump could step over).
-            if n.wrapping_sub(last_interrupt_check) >= interrupt_period {
-                last_interrupt_check = n;
-                let sys = System { uc: RefCell::new(uc), p: p.clone(), d: d.clone() };
-                p.nvic.borrow_mut().run_pending_interrupts(&sys, vector_table_addr);
-            }
-
-            if n.wrapping_sub(last_pump) >= PUMP_EVENT_INST_INTERVAL + 1 {
-                last_pump = n;
-                let sys = System { uc: RefCell::new(uc), p: p.clone(), d: d.clone() };
-                d.poll(&sys);
-                p.poll(&sys);
-                for fb in &framebuffers.sdls {
-                    fb.borrow_mut().maybe_redraw();
+                // The counter now advances in jumps, so both gates are
+                // deadline-based rather than the old exact `n % period == 0` /
+                // `n & mask == 0` forms (which a jump could step over).
+                if n.wrapping_sub(last_interrupt_check) >= interrupt_period {
+                    last_interrupt_check = n;
+                    let sys = System {
+                        uc: RefCell::new(uc),
+                        p: p.clone(),
+                        d: d.clone(),
+                    };
+                    p.nvic
+                        .borrow_mut()
+                        .run_pending_interrupts(&sys, vector_table_addr);
                 }
-                if !SDL.lock().unwrap().pump_events(&framebuffers.sdls) {
-                    STOP_REQUESTED.store(true, Ordering::Relaxed);
-                    uc.emu_stop().unwrap();
+
+                if n.wrapping_sub(last_pump) >= PUMP_EVENT_INST_INTERVAL + 1 {
+                    last_pump = n;
+                    let sys = System {
+                        uc: RefCell::new(uc),
+                        p: p.clone(),
+                        d: d.clone(),
+                    };
+                    d.poll(&sys);
+                    p.poll(&sys);
+                    for fb in &framebuffers.sdls {
+                        fb.borrow_mut().maybe_redraw();
+                    }
+                    if !SDL.lock().unwrap().pump_events(&framebuffers.sdls) {
+                        STOP_REQUESTED.store(true, Ordering::Relaxed);
+                        uc.emu_stop().unwrap();
+                    }
                 }
-            }
-        }).expect("add_block_hook failed");
+            })
+            .expect("add_block_hook failed");
     }
 
     if crate::verbose() >= 4 {
@@ -191,9 +240,12 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
             .mode(arch::arm::ArchMode::Thumb)
             .build()
             .expect("failed to initialize capstone");
-        sys.uc.borrow_mut().add_code_hook(0, u64::MAX, move |uc, pc, _size| {
-            info!("{}", disassemble_instruction(&diassembler, uc, pc));
-        }).expect("add_code_hook failed");
+        sys.uc
+            .borrow_mut()
+            .add_code_hook(0, u64::MAX, move |uc, pc, _size| {
+                info!("{}", disassemble_instruction(&diassembler, uc, pc));
+            })
+            .expect("add_code_hook failed");
     }
 
     {
@@ -278,34 +330,44 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
         }).expect("add_intr_hook failed");
     }
 
-    uc.add_mem_hook(HookType::MEM_UNMAPPED, 0, u64::MAX, |uc, type_, addr, size, value| {
-        if type_ == MemType::WRITE_UNMAPPED {
-            warn!("{:?} addr=0x{:08x} size={} value=0x{:08x}", type_, addr, size, value);
-        } else {
-            warn!("{:?} addr=0x{:08x} size={}", type_, addr, size);
-        }
+    uc.add_mem_hook(
+        HookType::MEM_UNMAPPED,
+        0,
+        u64::MAX,
+        |uc, type_, addr, size, value| {
+            if type_ == MemType::WRITE_UNMAPPED {
+                warn!(
+                    "{:?} addr=0x{:08x} size={} value=0x{:08x}",
+                    type_, addr, size, value
+                );
+            } else {
+                warn!("{:?} addr=0x{:08x} size={}", type_, addr, size);
+            }
 
-        // Skip the faulting instruction. Its width is decoded on demand from
-        // the two bytes at PC (a 16-bit halfword >= 0xE800 is the first half
-        // of a 32-bit Thumb-2 encoding, prefixes 0b11101/0b11110/0b11111) --
-        // there is no per-instruction hook tracking sizes anymore, and this
-        // path only runs on the rare unmapped access.
-        let pc = uc.reg_read(RegisterARM::PC).expect("failed to get pc");
-        let mut insn = [0u8; 2];
-        let width = match uc.mem_read(pc, &mut insn) {
-            Ok(()) if u16::from_le_bytes(insn) >= 0xE800 => 4,
-            _ => 2,
-        };
-        uc.reg_write(RegisterARM::PC, thumb(pc + width)).unwrap();
+            // Skip the faulting instruction. Its width is decoded on demand from
+            // the two bytes at PC (a 16-bit halfword >= 0xE800 is the first half
+            // of a 32-bit Thumb-2 encoding, prefixes 0b11101/0b11110/0b11111) --
+            // there is no per-instruction hook tracking sizes anymore, and this
+            // path only runs on the rare unmapped access.
+            let pc = uc.reg_read(RegisterARM::PC).expect("failed to get pc");
+            let mut insn = [0u8; 2];
+            let width = match uc.mem_read(pc, &mut insn) {
+                Ok(()) if u16::from_le_bytes(insn) >= 0xE800 => 4,
+                _ => 2,
+            };
+            uc.reg_write(RegisterARM::PC, thumb(pc + width)).unwrap();
 
-        CONTINUE_EXECUTION.store(true, Ordering::Release);
+            CONTINUE_EXECUTION.store(true, Ordering::Release);
 
-        false
-    }).expect("add_mem_hook failed");
+            false
+        },
+    )
+    .expect("add_mem_hook failed");
 
     let vector_table = VectorTable::from_memory(&uc, vector_table_addr)?;
     let mut pc = vector_table.reset as u64;
-    uc.reg_write(RegisterARM::SP, vector_table.sp.into()).map_err(UniErr)?;
+    uc.reg_write(RegisterARM::SP, vector_table.sp.into())
+        .map_err(UniErr)?;
     //uc.reg_write(RegisterARM::LR, 0xFFFF_FFFF).map_err(UniErr)?;
 
     info!("Starting emulation");
@@ -313,19 +375,20 @@ pub fn run_emulator(config: Config, svd_device: SvdDevice, args: Args) -> Result
     loop {
         let max_instructions = args.max_instructions.map(|c|
             // yes, we want to panic if this goes negative.
-            c - NUM_INSTRUCTIONS.load(Ordering::Relaxed)
-        );
+            c - NUM_INSTRUCTIONS.load(Ordering::Relaxed));
         if max_instructions == Some(0) {
             info!("Reached target number of instructions. Done");
             break;
         }
 
-        let result = uc.emu_start(
-            pc,
-            args.stop_addr.unwrap_or(0) as u64,
-            0,
-            max_instructions.unwrap_or(0) as usize,
-        ).map_err(UniErr);
+        let result = uc
+            .emu_start(
+                pc,
+                args.stop_addr.unwrap_or(0) as u64,
+                0,
+                max_instructions.unwrap_or(0) as usize,
+            )
+            .map_err(UniErr);
         let returned_pc = uc.reg_read(RegisterARM::PC).expect("failed to get pc");
         pc = thumb(returned_pc);
 
@@ -408,9 +471,21 @@ mod tests {
 
         uc.emu_start(0x1001, 0, 0, 0).unwrap();
 
-        assert_eq!(uc.reg_read(RegisterARM::SP).unwrap(), 0x3000, "pop retired: SP moved");
-        assert_eq!(uc.reg_read(RegisterARM::R0).unwrap(), 0xaaaa_aaaa, "pop retired: r0 loaded");
-        assert_eq!(uc.reg_read(RegisterARM::PC).unwrap(), 0x2000, "PC write was lost");
+        assert_eq!(
+            uc.reg_read(RegisterARM::SP).unwrap(),
+            0x3000,
+            "pop retired: SP moved"
+        );
+        assert_eq!(
+            uc.reg_read(RegisterARM::R0).unwrap(),
+            0xaaaa_aaaa,
+            "pop retired: r0 loaded"
+        );
+        assert_eq!(
+            uc.reg_read(RegisterARM::PC).unwrap(),
+            0x2000,
+            "PC write was lost"
+        );
     }
 
     /// Same contract as above, but for the *block* hook that interrupt
@@ -442,9 +517,21 @@ mod tests {
 
         uc.emu_start(0x1001, 0, 0, 0).unwrap();
 
-        assert_eq!(uc.reg_read(RegisterARM::SP).unwrap(), 0x3000, "block retired: SP moved");
-        assert_eq!(uc.reg_read(RegisterARM::R0).unwrap(), 0xaaaa_aaaa, "block retired: r0 loaded");
-        assert_eq!(uc.reg_read(RegisterARM::PC).unwrap(), 0x2000, "PC write was lost");
+        assert_eq!(
+            uc.reg_read(RegisterARM::SP).unwrap(),
+            0x3000,
+            "block retired: SP moved"
+        );
+        assert_eq!(
+            uc.reg_read(RegisterARM::R0).unwrap(),
+            0xaaaa_aaaa,
+            "block retired: r0 loaded"
+        );
+        assert_eq!(
+            uc.reg_read(RegisterARM::PC).unwrap(),
+            0x2000,
+            "PC write was lost"
+        );
     }
 
     /// Pins the bug-146 mechanism: a `pop {pc}` of an EXC_RETURN magic value
@@ -464,14 +551,18 @@ mod tests {
         uc.mem_map(0x3000, 0x1000, Prot::ALL).unwrap();
 
         uc.mem_write(0x1000, &[0x00, 0xbd]).unwrap(); // pop {pc}
-        uc.mem_write(0x3000, &0xffff_ffed_u32.to_le_bytes()).unwrap();
+        uc.mem_write(0x3000, &0xffff_ffed_u32.to_le_bytes())
+            .unwrap();
         uc.reg_write(RegisterARM::SP, 0x3000).unwrap();
 
         let seen = Arc::new(AtomicU64::new(0));
         let seen_in_hook = seen.clone();
         uc.add_intr_hook(move |uc, intno| {
             let pc = uc.reg_read(RegisterARM::PC).unwrap_or(0);
-            seen_in_hook.store(((intno as u64) << 32) | (pc & 0xffff_ffff), Ordering::Relaxed);
+            seen_in_hook.store(
+                ((intno as u64) << 32) | (pc & 0xffff_ffff),
+                Ordering::Relaxed,
+            );
             uc.emu_stop().unwrap();
         })
         .unwrap();
@@ -480,7 +571,10 @@ mod tests {
 
         let intno = (seen.load(Ordering::Relaxed) >> 32) as u32;
         let pc = seen.load(Ordering::Relaxed) as u32;
-        assert_eq!(intno, 3, "expected a prefetch abort from the thread-mode block");
+        assert_eq!(
+            intno, 3,
+            "expected a prefetch abort from the thread-mode block"
+        );
         assert!(
             is_exception_return_pc(pc),
             "abort PC {pc:#x} must be in the EXC_RETURN magic range"

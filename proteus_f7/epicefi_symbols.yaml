@@ -1,0 +1,40 @@
+# TEMPORARY diagnostic config: identical to config.yaml but loads the
+# matching-symbol epicefi.bin (built from epicefi_fw, vector table matches
+# rusefi.bin exactly) so trace PCs resolve correctly against epicefi.elf.
+# Not for committing; delete after the boot-loop investigation.
+cpu:
+  model: cortex-m7
+  svd: STM32F767.svd
+  vector_table: 0x00200000
+regions:
+  - name: ROM-ITCM-alias
+    start: 0x00200000
+    load: C:/Users/Tera/Documents/GitHub/epicefi_fw/firmware/build/epicefi.bin
+    size: 0x200000
+  - name: ROM-AXI-alias
+    start: 0x08000000
+    load: C:/Users/Tera/Documents/GitHub/epicefi_fw/firmware/build/epicefi.bin
+    size: 0x200000
+  - name: ITCM-RAM
+    start: 0x00000000
+    size: 0x4000
+  - name: System-identifiers
+    start: 0x1ff0f000
+    size: 0x1000
+  - name: DTCM-RAM
+    start: 0x20000000
+    size: 0x20000
+  - name: SRAM1
+    start: 0x20020000
+    size: 0x5c000
+  - name: SRAM2
+    start: 0x2007c000
+    size: 0x4000
+patches:
+  - start: 0x1ff0f442
+    data: [0x00, 0x08]
+devices:
+  usb_cdc_tcp:
+    - peripheral: OTG_FS_GLOBAL
+      listen: 127.0.0.1:29000
+      max_buffered_bytes: 65536

@@ -12,7 +12,11 @@ pub struct Rcc {
 impl Rcc {
     pub fn new(name: &str) -> Option<Box<dyn Peripheral>> {
         if name == "RCC" {
-            Some(Box::new(Rcc { cfgr: 0, csr: 0, bdcr: 0 }))
+            Some(Box::new(Rcc {
+                cfgr: 0,
+                csr: 0,
+                bdcr: 0,
+            }))
         } else {
             None
         }
@@ -84,6 +88,9 @@ mod tests {
 
     #[test]
     fn bdcr_reports_lse_ready_when_lse_is_enabled() {
-        assert_eq!(Rcc::bdcr_after_write(0x0000_0001) & 0x0000_0002, 0x0000_0002);
+        assert_eq!(
+            Rcc::bdcr_after_write(0x0000_0001) & 0x0000_0002,
+            0x0000_0002
+        );
     }
 }

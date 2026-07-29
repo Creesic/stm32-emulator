@@ -2,23 +2,22 @@
 
 mod config;
 mod emulator;
-mod util;
-mod peripherals;
 mod ext_devices;
-mod system;
 mod framebuffers;
+mod peripherals;
+mod system;
+mod util;
 
-use std::io::prelude::*;
-use std::sync::atomic::Ordering::Relaxed;
+use anyhow::{Context, Result};
 use clap::Parser;
-use anyhow::{Result, Context};
 use env_logger::fmt::WriteStyle;
 use log::LevelFilter;
+use std::io::prelude::*;
+use std::sync::atomic::Ordering::Relaxed;
 
 use config::Config;
 use emulator::run_emulator;
 use util::read_file_str;
-
 
 #[macro_use]
 extern crate log;
@@ -46,12 +45,12 @@ pub struct Args {
     busy_loop_stop: bool,
 
     /// Colorize output
-    #[clap(short, long, arg_enum, default_value="auto")]
+    #[clap(short, long, arg_enum, default_value = "auto")]
     color: Color,
 
     /// Run pending interrupts every N instructions
     /// Shorter is more correct, but is slower.
-    #[clap(short, long, default_value="1")]
+    #[clap(short, long, default_value = "1")]
     interrupt_period: u32,
 
     /// Dump stack at the end. Parameter is the number of words to print
@@ -82,6 +81,13 @@ pub fn verbose() -> u8 {
     unsafe { VERBOSE }
 }
 
+/// Opt-in CDC protocol tracing: set STM32_CDC_TRACE=1 to log every USB-CDC
+/// request/reply at the TCP boundary (see usb_cdc_tcp.rs). Off by default so
+/// normal runs are unaffected.
+pub fn cdc_trace() -> bool {
+    std::env::var("STM32_CDC_TRACE").is_ok_and(|v| v != "0" && !v.is_empty())
+}
+
 fn init_logging(args: &Args) {
     unsafe { VERBOSE = args.verbose };
 
@@ -107,10 +113,22 @@ fn init_logging(args: &Args) {
             let mut style = buf.style();
             let level = match record.level() {
                 log::Level::Error => style.set_color(Color::Red).set_intense(true).value("ERROR"),
-                log::Level::Warn =>  style.set_color(Color::Yellow).set_intense(true).value("WARN "),
-                log::Level::Info =>  style.set_color(Color::Green).set_intense(true).value("INFO "),
-                log::Level::Debug => style.set_color(Color::Cyan).set_intense(true).value("DEBUG"),
-                log::Level::Trace => style.set_color(Color::Blue).set_intense(true).value("TRACE"),
+                log::Level::Warn => style
+                    .set_color(Color::Yellow)
+                    .set_intense(true)
+                    .value("WARN "),
+                log::Level::Info => style
+                    .set_color(Color::Green)
+                    .set_intense(true)
+                    .value("INFO "),
+                log::Level::Debug => style
+                    .set_color(Color::Cyan)
+                    .set_intense(true)
+                    .value("DEBUG"),
+                log::Level::Trace => style
+                    .set_color(Color::Blue)
+                    .set_intense(true)
+                    .value("TRACE"),
             };
 
             let mut style = buf.style();

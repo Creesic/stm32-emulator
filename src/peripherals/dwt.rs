@@ -26,11 +26,13 @@ impl Dwt {
     }
 
     fn cyccnt(&self) -> u32 {
-        (crate::emulator::NUM_INSTRUCTIONS.load(Ordering::Relaxed) as u32).wrapping_add(self.cyccnt_offset)
+        (crate::emulator::NUM_INSTRUCTIONS.load(Ordering::Relaxed) as u32)
+            .wrapping_add(self.cyccnt_offset)
     }
 
     fn set_cyccnt(&mut self, value: u32) {
-        self.cyccnt_offset = value.wrapping_sub(crate::emulator::NUM_INSTRUCTIONS.load(Ordering::Relaxed) as u32);
+        self.cyccnt_offset =
+            value.wrapping_sub(crate::emulator::NUM_INSTRUCTIONS.load(Ordering::Relaxed) as u32);
     }
 }
 

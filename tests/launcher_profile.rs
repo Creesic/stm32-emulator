@@ -88,9 +88,18 @@ fn pins_from(ecu_io: &serde_yaml::Value) -> Vec<(String, String, String)> {
         .iter()
         .map(|pin| {
             (
-                pin["name"].as_str().expect("pin.name must be a string").to_string(),
-                pin["pin"].as_str().expect("pin.pin must be a string").to_string(),
-                pin["direction"].as_str().expect("pin.direction must be a string").to_string(),
+                pin["name"]
+                    .as_str()
+                    .expect("pin.name must be a string")
+                    .to_string(),
+                pin["pin"]
+                    .as_str()
+                    .expect("pin.pin must be a string")
+                    .to_string(),
+                pin["direction"]
+                    .as_str()
+                    .expect("pin.direction must be a string")
+                    .to_string(),
             )
         })
         .collect()
@@ -103,8 +112,14 @@ fn adc_channels_from(ecu_io: &serde_yaml::Value) -> Vec<(String, String)> {
         .iter()
         .map(|channel| {
             (
-                channel["name"].as_str().expect("adc_channel.name must be a string").to_string(),
-                channel["pin"].as_str().expect("adc_channel.pin must be a string").to_string(),
+                channel["name"]
+                    .as_str()
+                    .expect("adc_channel.name must be a string")
+                    .to_string(),
+                channel["pin"]
+                    .as_str()
+                    .expect("adc_channel.pin must be a string")
+                    .to_string(),
             )
         })
         .collect()
@@ -113,10 +128,20 @@ fn adc_channels_from(ecu_io: &serde_yaml::Value) -> Vec<(String, String)> {
 fn trigger_wheel_from(ecu_io: &serde_yaml::Value) -> (String, String, u64, u64) {
     let wheel = &ecu_io["trigger_wheel"];
     (
-        wheel["signal"].as_str().expect("trigger_wheel.signal must be a string").to_string(),
-        wheel["pin_signal"].as_str().expect("trigger_wheel.pin_signal must be a string").to_string(),
-        wheel["teeth"].as_u64().expect("trigger_wheel.teeth must be an integer"),
-        wheel["missing"].as_u64().expect("trigger_wheel.missing must be an integer"),
+        wheel["signal"]
+            .as_str()
+            .expect("trigger_wheel.signal must be a string")
+            .to_string(),
+        wheel["pin_signal"]
+            .as_str()
+            .expect("trigger_wheel.pin_signal must be a string")
+            .to_string(),
+        wheel["teeth"]
+            .as_u64()
+            .expect("trigger_wheel.teeth must be an integer"),
+        wheel["missing"]
+            .as_u64()
+            .expect("trigger_wheel.missing must be an integer"),
     )
 }
 
@@ -262,14 +287,21 @@ fn proteus_f7_config_yaml_matches_the_launcher_generated_ecu_io_device() {
     .unwrap();
     let launcher_ecu_io = ecu_io_value(&profile.to_yaml().unwrap());
 
-    let config_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("proteus_f7/config.yaml");
+    let config_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("proteus_f7/config.yaml");
     let config_yaml = std::fs::read_to_string(&config_path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", config_path.display()));
     let config_ecu_io = ecu_io_value(&config_yaml);
 
     assert_eq!(pins_from(&launcher_ecu_io), pins_from(&config_ecu_io));
-    assert_eq!(adc_channels_from(&launcher_ecu_io), adc_channels_from(&config_ecu_io));
-    assert_eq!(trigger_wheel_from(&launcher_ecu_io), trigger_wheel_from(&config_ecu_io));
+    assert_eq!(
+        adc_channels_from(&launcher_ecu_io),
+        adc_channels_from(&config_ecu_io)
+    );
+    assert_eq!(
+        trigger_wheel_from(&launcher_ecu_io),
+        trigger_wheel_from(&config_ecu_io)
+    );
 }
 
 #[test]

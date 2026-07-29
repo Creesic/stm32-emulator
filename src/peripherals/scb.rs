@@ -84,7 +84,11 @@ mod tests {
     fn test_parts() -> (Unicorn<'static, ()>, Rc<Peripherals>, Rc<ExtDevices>) {
         let mut uc = Unicorn::new(Arch::ARM, Mode::THUMB | Mode::LITTLE_ENDIAN).unwrap();
         uc.ctl_set_cpu_model(ArmCpuModel::CORTEX_M4 as i32).unwrap();
-        (uc, Rc::new(Peripherals::default()), Rc::new(ExtDevices::default()))
+        (
+            uc,
+            Rc::new(Peripherals::default()),
+            Rc::new(ExtDevices::default()),
+        )
     }
 
     #[test]
@@ -98,9 +102,16 @@ mod tests {
     #[test]
     fn icsr_read_reports_rettobase_since_nested_interrupts_are_unsupported() {
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
         let scb = Scb::default();
-        assert_eq!(scb.read_icsr(&sys) & Scb::ICSR_RETTOBASE, Scb::ICSR_RETTOBASE);
+        assert_eq!(
+            scb.read_icsr(&sys) & Scb::ICSR_RETTOBASE,
+            Scb::ICSR_RETTOBASE
+        );
     }
 
     #[test]
@@ -110,14 +121,21 @@ mod tests {
         // "thread mode" (0) regardless of which interrupt was actually
         // running, silently checking the wrong (always-zero) priority byte.
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
         let scb = Scb::default();
 
         assert_eq!(sys.p.nvic.borrow().active_exception_number(), 0);
         assert_eq!(scb.read_icsr(&sys) & 0x1ff, 0);
 
         // TIM5's exception number is IRQ_OFFSET (16) + 50 = 66.
-        sys.p.nvic.borrow_mut().set_active_exception_number_for_test(66);
+        sys.p
+            .nvic
+            .borrow_mut()
+            .set_active_exception_number_for_test(66);
         assert_eq!(scb.read_icsr(&sys) & 0x1ff, 66);
     }
 }

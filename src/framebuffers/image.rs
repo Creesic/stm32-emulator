@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::{io::BufWriter, fs::File};
-use super::{FramebufferConfig, Framebuffer, RGB565};
+use super::{Framebuffer, FramebufferConfig, RGB565};
 use anyhow::Result;
+use std::{fs::File, io::BufWriter};
 
 pub struct Image {
     pub config: FramebufferConfig,
@@ -12,8 +12,14 @@ pub struct Image {
 impl Image {
     pub fn new(config: FramebufferConfig) -> Self {
         let mut framebuffer = vec![];
-        framebuffer.resize(config.width as usize * config.height as usize, Default::default());
-        Self { config, framebuffer }
+        framebuffer.resize(
+            config.width as usize * config.height as usize,
+            Default::default(),
+        );
+        Self {
+            config,
+            framebuffer,
+        }
     }
 
     pub fn get_framebuffer_as_rgb(&self) -> Vec<u8> {
@@ -44,7 +50,9 @@ impl Image {
 
         let mut writer = encoder.write_header().unwrap();
 
-        writer.write_image_data(&self.get_framebuffer_as_rgb()).unwrap();
+        writer
+            .write_image_data(&self.get_framebuffer_as_rgb())
+            .unwrap();
 
         info!("Wrote framebuffer to {}", path);
 
@@ -63,7 +71,8 @@ impl<Color> Framebuffer<Color> for Image {
         unsafe {
             std::slice::from_raw_parts_mut(
                 self.framebuffer.as_mut_ptr() as *mut Color,
-                self.framebuffer.len() * std::mem::size_of::<RGB565>() / std::mem::size_of::<Color>(),
+                self.framebuffer.len() * std::mem::size_of::<RGB565>()
+                    / std::mem::size_of::<Color>(),
             )
         }
     }

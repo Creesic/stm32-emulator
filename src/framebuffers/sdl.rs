@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
+use sdl2::event::Event;
 use sdl2::mouse::MouseButton;
-use sdl2::{pixels::PixelFormatEnum, surface::Surface, render::Canvas, video::Window};
-use sdl2::{
-    event::Event,
-};
+use sdl2::{pixels::PixelFormatEnum, render::Canvas, surface::Surface, video::Window};
 
-use super::{FramebufferConfig, Framebuffer, sdl_engine::SDL};
+use super::{sdl_engine::SDL, Framebuffer, FramebufferConfig};
 
 pub const REFRESH_DURATION_MILLIS: u64 = 20;
 
@@ -31,16 +29,11 @@ impl Sdl {
             "gray8" => PixelFormatEnum::RGB888,
             _ => unimplemented!(),
         };
-        let mut canvas = SDL.lock().unwrap().new_canvas(
-            &config.name,
-            config.width.into(),
-            config.height.into()
-        );
-        let framebuffer = Surface::new(
-            config.width.into(),
-            config.height.into(),
-            format,
-        ).unwrap();
+        let mut canvas =
+            SDL.lock()
+                .unwrap()
+                .new_canvas(&config.name, config.width.into(), config.height.into());
+        let framebuffer = Surface::new(config.width.into(), config.height.into(), format).unwrap();
 
         /*
         // Can't figure out how to use Index8.
@@ -50,10 +43,13 @@ impl Sdl {
         */
 
         if let Some(downscale) = config.downscale {
-            canvas.window_mut().set_size(
-                config.width as u32 / downscale,
-                config.height as u32 / downscale,
-            ).unwrap();
+            canvas
+                .window_mut()
+                .set_size(
+                    config.width as u32 / downscale,
+                    config.height as u32 / downscale,
+                )
+                .unwrap();
         }
 
         canvas.window_mut().raise();
@@ -64,7 +60,15 @@ impl Sdl {
 
         let touch_position = None;
 
-        Self { config, canvas, framebuffer, need_redraw, last_redraw, window_id, touch_position }
+        Self {
+            config,
+            canvas,
+            framebuffer,
+            need_redraw,
+            last_redraw,
+            window_id,
+            touch_position,
+        }
     }
 
     fn should_redraw(&mut self) -> bool {
@@ -101,17 +105,24 @@ impl Sdl {
                     self.touch_position = Some((x as u16, y as u16));
                 }
             }
-            Event::MouseButtonDown { mouse_btn: MouseButton::Left, x, y, .. } => {
+            Event::MouseButtonDown {
+                mouse_btn: MouseButton::Left,
+                x,
+                y,
+                ..
+            } => {
                 self.touch_position = Some((x as u16, y as u16));
             }
-            Event::MouseButtonUp { mouse_btn:MouseButton::Left, .. } => {
+            Event::MouseButtonUp {
+                mouse_btn: MouseButton::Left,
+                ..
+            } => {
                 self.touch_position = None;
             }
             _ => {}
         }
     }
 }
-
 
 impl<Color> Framebuffer<Color> for Sdl {
     fn get_config(&self) -> &FramebufferConfig {

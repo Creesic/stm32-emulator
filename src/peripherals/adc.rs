@@ -3,7 +3,11 @@
 use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
 use super::Peripheral;
-use crate::{ext_devices::{ExtDevices, ecu_io::EcuIo}, peripherals::gpio::Pin, system::System};
+use crate::{
+    ext_devices::{ecu_io::EcuIo, ExtDevices},
+    peripherals::gpio::Pin,
+    system::System,
+};
 
 pub struct Adc {
     ecu_io: Option<Rc<RefCell<EcuIo>>>,
@@ -34,13 +38,12 @@ impl Adc {
     const SR_EOC: u32 = 1 << 1;
 
     const CHANNEL_PIN_NAMES: [&'static str; 16] = [
-        "PA0", "PA1", "PA2", "PA3", "PA4", "PA5", "PA6", "PA7",
-        "PB0", "PB1",
-        "PC0", "PC1", "PC2", "PC3", "PC4", "PC5",
+        "PA0", "PA1", "PA2", "PA3", "PA4", "PA5", "PA6", "PA7", "PB0", "PB1", "PC0", "PC1", "PC2",
+        "PC3", "PC4", "PC5",
     ];
 
     pub fn new(name: &str, ext_devices: &ExtDevices) -> Option<Box<dyn Peripheral>> {
-        if name == "ADC1" {
+        if matches!(name, "ADC1" | "ADC2") {
             Some(Box::new(Self::for_test(ext_devices.ecu_io())))
         } else {
             None
@@ -218,7 +221,8 @@ mod tests {
         assert_eq!(adc.register_read(Adc::DR), Adc::millivolts_to_counts(1500));
         assert_eq!(adc.register_read(Adc::DR), Adc::millivolts_to_counts(3300));
         assert_eq!(adc.register_read(Adc::DR), Adc::millivolts_to_counts(0));
-        assert_eq!(adc.register_read(Adc::DR), Adc::millivolts_to_counts(1500)); // wraps
+        assert_eq!(adc.register_read(Adc::DR), Adc::millivolts_to_counts(1500));
+        // wraps
     }
 
     #[test]
@@ -261,7 +265,12 @@ mod tests {
             (tps_counts & 0xFF) as u8,
             (tps_counts >> 8) as u8,
         ];
-        assert_eq!(bytes, expected.into_iter().collect::<std::collections::VecDeque<u8>>());
+        assert_eq!(
+            bytes,
+            expected
+                .into_iter()
+                .collect::<std::collections::VecDeque<u8>>()
+        );
     }
 
     #[test]
@@ -282,5 +291,13 @@ mod tests {
         assert_eq!(Adc::millivolts_to_counts(3300), 4095);
         assert_eq!(Adc::millivolts_to_counts(-10), 0);
         assert_eq!(Adc::millivolts_to_counts(10_000), 4095);
+    }
+
+    #[test]
+    fn both_adc_devices_used_by_epic_efi_are_modeled() {
+        let ext_devices = crate::ext_devices::ExtDevices::default();
+        assert!(Adc::new("ADC1", &ext_devices).is_some());
+        assert!(Adc::new("ADC2", &ext_devices).is_some());
+        assert!(Adc::new("ADC3", &ext_devices).is_none());
     }
 }

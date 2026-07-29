@@ -68,8 +68,16 @@ impl Dma {
         for i in 0..self.streams.len() {
             if self.complete_at[i].is_some_and(|at| at <= now) {
                 self.complete_at[i] = None;
-                self.set_transfer_complete_flag(i);
+                // A DMA stream is only armed when EN is written. The
+                // peripheral transfer itself happens later, while the stream
+                // is active. This ordering matters for ADC: ChibiOS enables
+                // DMA first, then programs the ADC sequence and starts the
+                // conversion. Reading ADC_DR at arm time therefore samples
+                // the previous sequence instead of the one being converted.
+                self.streams[i].do_xfer(&self.name, sys);
                 let tcie = self.streams[i].cr & (1 << 4) != 0;
+                self.streams[i].finish_transfer();
+                self.set_transfer_complete_flag(i);
                 if tcie {
                     if let Some(irq) = Self::stream_irq(&self.name, i) {
                         sys.p.nvic.borrow_mut().set_intr_pending(irq);
@@ -311,19 +319,16 @@ impl Stream {
     /// Returns whether a transfer was just completed (enable bit was set),
     /// so the caller (which owns the shared LISR/HISR/NVIC state) can raise
     /// the completion flag and interrupt.
-    pub fn write(&mut self, name: &str, sys: &System, offset: u32, mut value: u32) -> bool {
+    pub fn write(&mut self, _name: &str, _sys: &System, offset: u32, value: u32) -> bool {
         match offset {
             0x0000 => {
                 self.cr = value;
 
                 // CRx register
                 if value & 1 != 0 {
-                    // Enable is on. do the transfer.
-                    self.do_xfer(name, sys);
-
-                    value &= !1;
-                    self.ndtr = 0;
-                    self.next_cr = Some(value);
+                    // EN arms the transfer. Dma::advance_to performs it at
+                    // the scheduled completion deadline, after the
+                    // peripheral has had time to produce data.
                     return true;
                 }
                 false
@@ -350,6 +355,12 @@ impl Stream {
             }
             _ => false,
         }
+    }
+
+    fn finish_transfer(&mut self) {
+        self.cr &= !1;
+        self.ndtr = 0;
+        self.next_cr = None;
     }
 }
 
@@ -396,11 +407,18 @@ mod tests {
     fn test_parts() -> (Unicorn<'static, ()>, Rc<Peripherals>, Rc<ExtDevices>) {
         let mut uc = Unicorn::new(Arch::ARM, Mode::THUMB | Mode::LITTLE_ENDIAN).unwrap();
         uc.ctl_set_cpu_model(ArmCpuModel::CORTEX_M4 as i32).unwrap();
-        (uc, Rc::new(Peripherals::default()), Rc::new(ExtDevices::default()))
+        (
+            uc,
+            Rc::new(Peripherals::default()),
+            Rc::new(ExtDevices::default()),
+        )
     }
 
     fn dma2() -> Dma {
-        Dma { name: "DMA2".to_owned(), ..Dma::default() }
+        Dma {
+            name: "DMA2".to_owned(),
+            ..Dma::default()
+        }
     }
 
     // Stream 4's CR register offset: start (0x10) + index * stride (0x18).
@@ -430,7 +448,11 @@ mod tests {
         // usbStart). The flag and interrupt must only fire once some
         // emulated time has passed.
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p: p.clone(), d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p: p.clone(),
+            d,
+        };
         let mut dma = dma2();
 
         dma.advance_to(&sys, 1_000);
@@ -462,7 +484,11 @@ mod tests {
         // semaphore; without it, firmware hangs forever right after
         // arming the transfer.
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p: p.clone(), d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p: p.clone(),
+            d,
+        };
         let mut dma = dma2();
 
         dma.write(&sys, STREAM4_CR + 0x04, 0); // NDTR = 0, nothing to move
@@ -478,7 +504,11 @@ mod tests {
     #[test]
     fn transfer_complete_flag_sets_but_is_not_forwarded_to_nvic_without_tcie() {
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p: p.clone(), d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p: p.clone(),
+            d,
+        };
         let mut dma = dma2();
 
         dma.write(&sys, STREAM4_CR + 0x04, 0);
@@ -492,7 +522,11 @@ mod tests {
     #[test]
     fn interrupt_flag_clear_register_clears_the_flag() {
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
         let mut dma = dma2();
 
         dma.write(&sys, STREAM4_CR + 0x04, 0);
@@ -503,5 +537,25 @@ mod tests {
 
         dma.write(&sys, 0x0c, bit); // HIFCR
         assert_eq!(dma.read(&sys, 0x04) & bit, 0);
+    }
+
+    #[test]
+    fn enabling_a_stream_arms_it_until_the_completion_deadline() {
+        let (mut uc, p, d) = test_parts();
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
+        let mut stream = super::Stream::default();
+        stream.ndtr = 128;
+
+        assert!(stream.write("DMA2", &sys, 0, EN | TCIE));
+        assert_eq!(stream.ndtr, 128);
+        assert_ne!(stream.cr & EN, 0);
+
+        stream.finish_transfer();
+        assert_eq!(stream.ndtr, 0);
+        assert_eq!(stream.cr & EN, 0);
     }
 }

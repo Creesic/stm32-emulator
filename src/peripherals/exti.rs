@@ -110,8 +110,8 @@ impl Exti {
         if self.imr & (1 << pin) == 0 {
             return None;
         }
-        let edge_matches = (rising && self.rtsr & (1 << pin) != 0)
-            || (!rising && self.ftsr & (1 << pin) != 0);
+        let edge_matches =
+            (rising && self.rtsr & (1 << pin) != 0) || (!rising && self.ftsr & (1 << pin) != 0);
         if !edge_matches {
             return None;
         }

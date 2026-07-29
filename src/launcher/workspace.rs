@@ -2,8 +2,8 @@ use std::fmt;
 use std::fs;
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
 use crate::launcher::LauncherCpuModel;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 pub struct WindowPlacement {
@@ -51,7 +51,10 @@ impl WorkspaceStore {
         let root = std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("XDG_STATE_HOME").map(PathBuf::from))
-            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("state")))
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(|home| PathBuf::from(home).join(".local").join("state"))
+            })
             .ok_or_else(|| WorkspaceError("No user state directory is available.".to_owned()))?;
         Self::in_directory(root.join("stm32-emulator").join("launcher"))
     }
@@ -87,8 +90,12 @@ impl WorkspaceStore {
 pub struct WorkspaceError(String);
 
 impl WorkspaceError {
-    fn io(error: std::io::Error) -> Self { Self(error.to_string()) }
-    fn yaml(error: serde_yaml::Error) -> Self { Self(error.to_string()) }
+    fn io(error: std::io::Error) -> Self {
+        Self(error.to_string())
+    }
+    fn yaml(error: serde_yaml::Error) -> Self {
+        Self(error.to_string())
+    }
 }
 
 impl fmt::Display for WorkspaceError {

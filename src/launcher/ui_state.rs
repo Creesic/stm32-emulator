@@ -23,6 +23,8 @@ pub struct LauncherState {
 
 impl LauncherState {
     pub fn can_run(&self) -> bool {
-        self.firmware.is_some() && self.selected_variant.is_some() && self.status != RunStatus::Running
+        self.firmware.is_some()
+            && self.selected_variant.is_some()
+            && self.status != RunStatus::Running
     }
 }

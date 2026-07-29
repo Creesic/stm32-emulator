@@ -14,12 +14,8 @@ use stm32_emulator::launcher::process::{
 };
 use stm32_emulator::launcher::registry::{all_variants, support_summary};
 use stm32_emulator::launcher::ui_state::{LauncherState, RunStatus};
-use stm32_emulator::launcher::workspace::{
-    SavedLauncherState, WindowPlacement, WorkspaceStore,
-};
-use stm32_emulator::launcher::{
-    EmulationSupport, KnownVariant, LauncherCpuModel, ResolvedProfile,
-};
+use stm32_emulator::launcher::workspace::{SavedLauncherState, WindowPlacement, WorkspaceStore};
+use stm32_emulator::launcher::{EmulationSupport, KnownVariant, LauncherCpuModel, ResolvedProfile};
 
 const BG: [f32; 4] = [0.086, 0.106, 0.133, 1.0];
 const PANEL: [f32; 4] = [0.133, 0.165, 0.208, 1.0];
@@ -66,13 +62,37 @@ impl App {
                 enabled: saved.manual_enabled,
                 cpu_model: saved.manual_cpu_model,
                 svd: saved.manual_svd,
-                vector_table: if saved.manual_vector_table.is_empty() { "0x08000000".to_owned() } else { saved.manual_vector_table },
-                flash_start: if saved.manual_flash_start.is_empty() { "0x08000000".to_owned() } else { saved.manual_flash_start },
-                flash_size: if saved.manual_flash_size.is_empty() { "0x00100000".to_owned() } else { saved.manual_flash_size },
-                ram_start: if saved.manual_ram_start.is_empty() { "0x20000000".to_owned() } else { saved.manual_ram_start },
-                ram_size: if saved.manual_ram_size.is_empty() { "0x00020000".to_owned() } else { saved.manual_ram_size },
+                vector_table: if saved.manual_vector_table.is_empty() {
+                    "0x08000000".to_owned()
+                } else {
+                    saved.manual_vector_table
+                },
+                flash_start: if saved.manual_flash_start.is_empty() {
+                    "0x08000000".to_owned()
+                } else {
+                    saved.manual_flash_start
+                },
+                flash_size: if saved.manual_flash_size.is_empty() {
+                    "0x00100000".to_owned()
+                } else {
+                    saved.manual_flash_size
+                },
+                ram_start: if saved.manual_ram_start.is_empty() {
+                    "0x20000000".to_owned()
+                } else {
+                    saved.manual_ram_start
+                },
+                ram_size: if saved.manual_ram_size.is_empty() {
+                    "0x00020000".to_owned()
+                } else {
+                    saved.manual_ram_size
+                },
             },
-            usb_cdc_tcp_port: if saved.usb_cdc_tcp_port.is_empty() { "29000".to_owned() } else { saved.usb_cdc_tcp_port },
+            usb_cdc_tcp_port: if saved.usb_cdc_tcp_port.is_empty() {
+                "29000".to_owned()
+            } else {
+                saved.usb_cdc_tcp_port
+            },
             temporary_config: None,
             process: None,
         }
@@ -239,9 +259,7 @@ fn parse_port(input: &str) -> Result<u16, String> {
         .map_err(|_| "USB CDC TCP port must be a number from 1-65535.".to_owned())
 }
 
-fn window_attributes(
-    placement: Option<WindowPlacement>,
-) -> glium::winit::window::WindowAttributes {
+fn window_attributes(placement: Option<WindowPlacement>) -> glium::winit::window::WindowAttributes {
     let placement = placement.filter(|value| value.width > 0 && value.height > 0);
     let mut attributes = glium::winit::window::Window::default_attributes()
         .with_title("STM32 Emulator")
@@ -325,7 +343,7 @@ fn main() {
                 });
                 let _ = store.save(&workspace);
                 window_target.exit()
-            },
+            }
             glium::winit::event::Event::WindowEvent {
                 event: glium::winit::event::WindowEvent::Resized(size),
                 ..
@@ -595,7 +613,10 @@ fn draw_output_panel(ui: &Ui, app: &mut App) {
                 app.stop();
             }
             ui.same_line();
-            ui.text_colored(status_color(app.state.status), status_label(app.state.status));
+            ui.text_colored(
+                status_color(app.state.status),
+                status_label(app.state.status),
+            );
             if run_clicked {
                 app.start();
             }

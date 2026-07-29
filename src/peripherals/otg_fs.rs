@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::{cell::RefCell, collections::{BTreeMap, VecDeque}, rc::Rc, sync::atomic::Ordering};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, VecDeque},
+    rc::Rc,
+    sync::atomic::Ordering,
+};
 
-use crate::{ext_devices::{usb_cdc_tcp::UsbCdcTcp, ExtDevices}, system::System};
+use crate::{
+    ext_devices::{embedded_cdc::EmbeddedCdcStage, usb_cdc_tcp::UsbCdcTcp, ExtDevices},
+    system::System,
+};
 
 use super::Peripheral;
 
@@ -272,6 +280,11 @@ impl OtgFs {
     }
 
     pub fn virtual_host_reset(&mut self) {
+        if let Some(bridge) = self.bridge.as_ref() {
+            bridge
+                .borrow()
+                .set_protocol_stage(EmbeddedCdcStage::AwaitingDeviceDescriptor);
+        }
         self.set_global_interrupt_status(Self::USB_RESET);
         // A real bus reset clears endpoint configuration and any in-flight
         // FIFO contents. Without this, only the very first client (since
@@ -453,6 +466,42 @@ impl OtgFs {
                 "[otg-instr] enum advanced: {previous_step:?} -> {:?}",
                 self.virtual_host_step
             );
+            if let Some(bridge) = self.bridge.as_ref() {
+                let stage = match self.virtual_host_step {
+                    VirtualHostStep::AwaitingDeviceDescriptor => {
+                        EmbeddedCdcStage::AwaitingDeviceDescriptor
+                    }
+                    VirtualHostStep::AwaitingSetAddressStatus => {
+                        EmbeddedCdcStage::AwaitingSetAddressStatus
+                    }
+                    VirtualHostStep::AwaitingSetConfigurationStatus => {
+                        EmbeddedCdcStage::AwaitingSetConfigurationStatus
+                    }
+                    VirtualHostStep::AwaitingSetLineCodingStatus => {
+                        EmbeddedCdcStage::AwaitingSetLineCodingStatus
+                    }
+                    VirtualHostStep::AwaitingSetControlLineStateStatus => {
+                        EmbeddedCdcStage::AwaitingSetControlLineStateStatus
+                    }
+                    VirtualHostStep::Configured => EmbeddedCdcStage::ProtocolReady,
+                };
+                bridge.borrow().set_protocol_stage(stage);
+            }
+        }
+    }
+
+    fn refresh_virtual_host_attachment(&mut self, firmware_irq_enabled: bool) {
+        let host_present = self
+            .bridge
+            .as_ref()
+            .is_some_and(|bridge| bridge.borrow().is_client_connected());
+        let firmware_usb_ready = self.global_interrupt_mask != 0 && firmware_irq_enabled;
+        if host_present && firmware_usb_ready && !self.host_attached {
+            info!("Virtual USB host attached");
+            self.host_attached = true;
+            self.virtual_host_reset();
+        } else if !host_present {
+            self.host_attached = false;
         }
     }
 
@@ -595,6 +644,11 @@ impl OtgFs {
             Self::GINTMSK => {
                 if self.global_interrupt_mask == 0 && value != 0 {
                     info!("[otg-instr] firmware enabled OTG interrupts (GINTMSK={value:#010x}) -- usbStart() reached!");
+                    if let Some(bridge) = self.bridge.as_ref() {
+                        bridge
+                            .borrow()
+                            .set_protocol_stage(EmbeddedCdcStage::UsbStarted);
+                    }
                 }
                 self.global_interrupt_mask = value;
             }
@@ -618,7 +672,9 @@ impl OtgFs {
                 let newly_unmasked = value & !self.diep_empty_mask;
                 self.diep_empty_mask = value;
                 for ep in 0..Self::NUM_ENDPOINTS {
-                    if newly_unmasked & (1 << ep) != 0 && self.ep_in[ep].ctl & Self::DIEPCTL_EPENA != 0 {
+                    if newly_unmasked & (1 << ep) != 0
+                        && self.ep_in[ep].ctl & Self::DIEPCTL_EPENA != 0
+                    {
                         self.raise_in_endpoint_interrupt(ep, Self::DIEPINT_TXFE);
                     }
                 }
@@ -655,17 +711,8 @@ impl Peripheral for OtgFs {
             }
         }
 
-        let connected = self
-            .bridge
-            .as_ref()
-            .is_some_and(|bridge| bridge.borrow().is_client_connected());
-        if connected && !self.host_attached {
-            info!("Virtual USB host attached");
-            self.host_attached = true;
-            self.virtual_host_reset();
-        } else if !connected {
-            self.host_attached = false;
-        }
+        let firmware_irq_enabled = sys.p.nvic.borrow().is_enabled(67);
+        self.refresh_virtual_host_attachment(firmware_irq_enabled);
 
         if self.host_attached {
             // A real USB host emits a Start-of-Frame every 1ms regardless of
@@ -740,7 +787,59 @@ impl Peripheral for OtgFs {
 
 #[cfg(test)]
 mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use crate::ext_devices::{
+        embedded_cdc::EmbeddedCdcLink,
+        usb_cdc_tcp::{UsbCdcTcp, UsbCdcTcpConfig},
+    };
+
     use super::{OtgFs, VirtualHostStep};
+
+    fn embedded_bridge(link: EmbeddedCdcLink) -> Rc<RefCell<UsbCdcTcp>> {
+        Rc::new(RefCell::new(UsbCdcTcp::new_embedded_for_test(
+            UsbCdcTcpConfig {
+                peripheral: "OTG_FS_GLOBAL".to_owned(),
+                listen: "127.0.0.1:0".to_owned(),
+                max_buffered_bytes: 64,
+            },
+            link,
+        )))
+    }
+
+    #[test]
+    fn embedded_protocol_is_ready_only_after_usb_enumeration_completes() {
+        let link = EmbeddedCdcLink::new();
+        let mut otg = OtgFs::for_test();
+        otg.bridge = Some(embedded_bridge(link.clone()));
+        otg.virtual_host_step = VirtualHostStep::AwaitingSetControlLineStateStatus;
+
+        assert!(!link.protocol_ready());
+        otg.advance_virtual_host();
+        assert!(link.protocol_ready());
+
+        otg.virtual_host_reset();
+        assert!(!link.protocol_ready());
+    }
+
+    #[test]
+    fn embedded_host_waits_until_firmware_enables_usb_interrupts() {
+        let link = EmbeddedCdcLink::new();
+        let mut otg = OtgFs::for_test();
+        otg.bridge = Some(embedded_bridge(link));
+
+        otg.refresh_virtual_host_attachment(false);
+        assert!(!otg.host_attached);
+        assert_eq!(otg.global_interrupt_status & OtgFs::USB_RESET, 0);
+
+        otg.register_write(OtgFs::GINTMSK, u32::MAX);
+        otg.refresh_virtual_host_attachment(false);
+        assert!(!otg.host_attached);
+
+        otg.refresh_virtual_host_attachment(true);
+        assert!(otg.host_attached);
+        assert_ne!(otg.global_interrupt_status & OtgFs::USB_RESET, 0);
+    }
 
     #[test]
     fn grstctl_core_soft_reset_clears_immediately() {
@@ -1003,7 +1102,10 @@ mod tests {
 
         // Chunk 1: arm, then enable the mask (first TXFE, already covered
         // by the test above).
-        otg.register_write(OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_TSIZ_OFFSET, 4);
+        otg.register_write(
+            OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_TSIZ_OFFSET,
+            4,
+        );
         otg.register_write(
             OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_CTL_OFFSET,
             OtgFs::DIEPCTL_EPENA,
@@ -1028,7 +1130,10 @@ mod tests {
 
         // Chunk 2: arm again, *without* touching DIEPEMPMSK -- the mask
         // bit was never cleared, matching how firmware behaves live.
-        otg.register_write(OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_TSIZ_OFFSET, 4);
+        otg.register_write(
+            OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_TSIZ_OFFSET,
+            4,
+        );
         otg.register_write(
             OtgFs::DIEP_BASE + OtgFs::EP_STRIDE + OtgFs::EP_CTL_OFFSET,
             OtgFs::DIEPCTL_EPENA,
@@ -1045,9 +1150,7 @@ mod tests {
     #[test]
     fn dtxfsts_reports_room_for_a_full_control_packet() {
         let mut otg = OtgFs::for_test();
-        assert!(
-            otg.register_read(OtgFs::DIEP_BASE + OtgFs::DTXFSTS_OFFSET) * 4 >= 64
-        );
+        assert!(otg.register_read(OtgFs::DIEP_BASE + OtgFs::DTXFSTS_OFFSET) * 4 >= 64);
     }
 
     #[test]
@@ -1058,7 +1161,10 @@ mod tests {
         // first GET_DESCRIPTOR SETUP packet, exactly like real enumeration.
         otg.virtual_host_reset();
         otg.register_write(OtgFs::DOEP_BASE, OtgFs::DOEPCTL_USBAEP);
-        assert_eq!(otg.next_setup_request(), OtgFs::get_device_descriptor_packet());
+        assert_eq!(
+            otg.next_setup_request(),
+            OtgFs::get_device_descriptor_packet()
+        );
 
         // Simulate the rest of enumeration completing, firmware consuming
         // that SETUP packet, and the client disconnecting.
@@ -1068,13 +1174,19 @@ mod tests {
 
         // A new client connects: a second, independent host attach.
         otg.virtual_host_reset();
-        assert_eq!(otg.virtual_host_step, VirtualHostStep::AwaitingDeviceDescriptor);
+        assert_eq!(
+            otg.virtual_host_step,
+            VirtualHostStep::AwaitingDeviceDescriptor
+        );
 
         // Firmware, seeing the new bus reset, re-arms EP0 OUT exactly as
         // before — this must inject a fresh GET_DESCRIPTOR SETUP packet,
         // not silently skip enumeration because EP0 OUT looks "already
         // active" from the first client's session.
         otg.register_write(OtgFs::DOEP_BASE, OtgFs::DOEPCTL_USBAEP);
-        assert_eq!(otg.next_setup_request(), OtgFs::get_device_descriptor_packet());
+        assert_eq!(
+            otg.next_setup_request(),
+            OtgFs::get_device_descriptor_packet()
+        );
     }
 }

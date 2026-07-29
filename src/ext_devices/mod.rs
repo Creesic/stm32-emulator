@@ -1,27 +1,28 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-mod spi_flash;
-mod usart_probe;
 mod display;
-mod lcd;
-mod touchscreen;
-pub mod usb_cdc_tcp;
 pub mod ecu_io;
+pub mod embedded_cdc;
+pub mod embedded_ecu_io;
+mod lcd;
+mod spi_flash;
+mod touchscreen;
+mod usart_probe;
+pub mod usb_cdc_tcp;
 
-use spi_flash::{SpiFlashConfig, SpiFlash};
-use usart_probe::{UsartProbeConfig, UsartProbe};
-use display::{DisplayConfig, Display};
-use lcd::{LcdConfig, Lcd};
-use touchscreen::{TouchscreenConfig, Touchscreen};
-use usb_cdc_tcp::{UsbCdcTcpConfig, UsbCdcTcp};
-use ecu_io::{EcuIoConfig, EcuIo};
+use display::{Display, DisplayConfig};
+use ecu_io::{EcuIo, EcuIoConfig};
+use lcd::{Lcd, LcdConfig};
+use spi_flash::{SpiFlash, SpiFlashConfig};
+use touchscreen::{Touchscreen, TouchscreenConfig};
+use usart_probe::{UsartProbe, UsartProbeConfig};
+use usb_cdc_tcp::{UsbCdcTcp, UsbCdcTcpConfig};
 
-use std::{rc::Rc, cell::RefCell};
-use serde::Deserialize;
 use anyhow::Result;
+use serde::Deserialize;
+use std::{cell::RefCell, rc::Rc};
 
-use crate::{system::System, framebuffers::Framebuffers, peripherals::gpio::GpioPorts};
-
+use crate::{framebuffers::Framebuffers, peripherals::gpio::GpioPorts, system::System};
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ExtDevicesConfig {
@@ -46,40 +47,49 @@ pub struct ExtDevices {
 }
 
 impl ExtDevices {
-    pub fn find_serial_device(&self, peri_name: &str) -> Option<Rc<RefCell<dyn ExtDevice<(), u8>>>> {
-        self.spi_flashes.iter()
+    pub fn find_serial_device(
+        &self,
+        peri_name: &str,
+    ) -> Option<Rc<RefCell<dyn ExtDevice<(), u8>>>> {
+        self.spi_flashes
+            .iter()
             .filter(|d| d.borrow().config.peripheral == peri_name)
             .next()
             .map(|d| d.clone() as Rc<RefCell<dyn ExtDevice<(), u8>>>)
-        .or_else(||
-        self.usart_probes.iter()
-            .filter(|d| d.borrow().config.peripheral == peri_name)
-            .next()
-            .map(|d| d.clone() as Rc<RefCell<dyn ExtDevice<(), u8>>>)
-       )
-        .or_else(||
-        self.lcds.iter()
-            .filter(|d| d.borrow().config.peripheral == peri_name)
-            .next()
-            .map(|d| d.clone() as Rc<RefCell<dyn ExtDevice<(), u8>>>)
-       )
-        .or_else(||
-        self.touchscreens.iter()
-            .filter(|d| d.borrow().config.peripheral == peri_name)
-            .next()
-            .map(|d| d.clone() as Rc<RefCell<dyn ExtDevice<(), u8>>>)
-       )
+            .or_else(|| {
+                self.usart_probes
+                    .iter()
+                    .filter(|d| d.borrow().config.peripheral == peri_name)
+                    .next()
+                    .map(|d| d.clone() as Rc<RefCell<dyn ExtDevice<(), u8>>>)
+            })
+            .or_else(|| {
+                self.lcds
+                    .iter()
+                    .filter(|d| d.borrow().config.peripheral == peri_name)
+                    .next()
+                    .map(|d| d.clone() as Rc<RefCell<dyn ExtDevice<(), u8>>>)
+            })
+            .or_else(|| {
+                self.touchscreens
+                    .iter()
+                    .filter(|d| d.borrow().config.peripheral == peri_name)
+                    .next()
+                    .map(|d| d.clone() as Rc<RefCell<dyn ExtDevice<(), u8>>>)
+            })
     }
 
     pub fn find_mem_device(&self, peri_name: &str) -> Option<Rc<RefCell<dyn ExtDevice<u32, u32>>>> {
-        self.displays.iter()
+        self.displays
+            .iter()
             .filter(|d| d.borrow().config.peripheral == peri_name)
             .next()
             .map(|d| d.clone() as Rc<RefCell<dyn ExtDevice<u32, u32>>>)
     }
 
     pub fn find_usb_cdc_tcp(&self, peri_name: &str) -> Option<Rc<RefCell<UsbCdcTcp>>> {
-        self.usb_cdc_tcps.iter()
+        self.usb_cdc_tcps
+            .iter()
             .find(|d| d.borrow().config.peripheral == peri_name)
             .cloned()
     }
@@ -106,36 +116,81 @@ impl ExtDevices {
 }
 
 impl ExtDevicesConfig {
-    pub fn into_ext_devices(self, gpio: &mut GpioPorts, framebuffers: &Framebuffers) -> Result<ExtDevices> {
-        let spi_flashes = self.spi_flash.unwrap_or_default().into_iter()
+    pub fn into_ext_devices(
+        self,
+        gpio: &mut GpioPorts,
+        framebuffers: &Framebuffers,
+    ) -> Result<ExtDevices> {
+        let spi_flashes = self
+            .spi_flash
+            .unwrap_or_default()
+            .into_iter()
             .map(|config| SpiFlash::new(config).map(RefCell::new).map(Rc::new))
             .collect::<Result<_>>()?;
 
-        let usart_probes = self.usart_probe.unwrap_or_default().into_iter()
+        let usart_probes = self
+            .usart_probe
+            .unwrap_or_default()
+            .into_iter()
             .map(|config| UsartProbe::new(config).map(RefCell::new).map(Rc::new))
             .collect::<Result<_>>()?;
 
-        let displays = self.display.unwrap_or_default().into_iter()
-            .map(|config| Display::new(config, framebuffers).map(RefCell::new).map(Rc::new))
+        let displays = self
+            .display
+            .unwrap_or_default()
+            .into_iter()
+            .map(|config| {
+                Display::new(config, framebuffers)
+                    .map(RefCell::new)
+                    .map(Rc::new)
+            })
             .collect::<Result<_>>()?;
 
-        let lcds = self.lcd.unwrap_or_default().into_iter()
-            .map(|config| Lcd::new(config, framebuffers).map(RefCell::new).map(Rc::new))
+        let lcds = self
+            .lcd
+            .unwrap_or_default()
+            .into_iter()
+            .map(|config| {
+                Lcd::new(config, framebuffers)
+                    .map(RefCell::new)
+                    .map(Rc::new)
+            })
             .collect::<Result<_>>()?;
 
-        let touchscreens = self.touchscreen.unwrap_or_default().into_iter()
-            .map(|config| Touchscreen::new(config, gpio, framebuffers).map(RefCell::new).map(Rc::new))
+        let touchscreens = self
+            .touchscreen
+            .unwrap_or_default()
+            .into_iter()
+            .map(|config| {
+                Touchscreen::new(config, gpio, framebuffers)
+                    .map(RefCell::new)
+                    .map(Rc::new)
+            })
             .collect::<Result<_>>()?;
 
-        let usb_cdc_tcps = self.usb_cdc_tcp.unwrap_or_default().into_iter()
+        let usb_cdc_tcps = self
+            .usb_cdc_tcp
+            .unwrap_or_default()
+            .into_iter()
             .map(|config| UsbCdcTcp::new(config).map(RefCell::new).map(Rc::new))
             .collect::<Result<_>>()?;
 
-        let ecu_ios = self.ecu_io.unwrap_or_default().into_iter()
+        let ecu_ios = self
+            .ecu_io
+            .unwrap_or_default()
+            .into_iter()
             .map(|config| EcuIo::register(config, gpio))
             .collect::<Result<_>>()?;
 
-        Ok(ExtDevices { spi_flashes, usart_probes, displays, lcds, touchscreens, usb_cdc_tcps, ecu_ios })
+        Ok(ExtDevices {
+            spi_flashes,
+            usart_probes,
+            displays,
+            lcds,
+            touchscreens,
+            usb_cdc_tcps,
+            ecu_ios,
+        })
     }
 }
 
@@ -167,7 +222,9 @@ mod tests {
         })
         .unwrap();
         let mut client = TcpStream::connect(bridge.local_addr().unwrap()).unwrap();
-        client.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
 
         bridge.poll().unwrap();
         bridge.push_from_device(&[0x00, 0xff, 0x42]);

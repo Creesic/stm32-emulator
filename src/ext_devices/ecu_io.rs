@@ -14,6 +14,8 @@ use serde::Deserialize;
 use crate::peripherals::gpio::{GpioPorts, Pin};
 use crate::system::System;
 
+use super::embedded_ecu_io::{take_pending_device_link, EmbeddedEcuIoLink};
+
 /// Defensive cap on `recv_buffer`/`outgoing` growth against a stalled or malicious
 /// client; not user-configurable, mirroring `usb_cdc_tcp`'s `max_buffered_bytes` default.
 const MAX_BUFFERED_BYTES: usize = 65536;
@@ -80,7 +82,11 @@ impl TriggerWheel {
     const INSTRUCTIONS_PER_MINUTE: f64 = 60.0 * 216_000_000.0;
 
     fn new(config: EcuIoTriggerWheelConfig) -> Self {
-        Self { config, position: 0.0, last_instructions: 0 }
+        Self {
+            config,
+            position: 0.0,
+            last_instructions: 0,
+        }
     }
 
     /// The wheel's output level at a position: teeth occupy the first half
@@ -103,14 +109,16 @@ impl TriggerWheel {
             return None;
         }
         let rpm = rpm.min(30_000) as f64;
-        self.position = (self.position + delta as f64 * rpm / Self::INSTRUCTIONS_PER_MINUTE).fract();
+        self.position =
+            (self.position + delta as f64 * rpm / Self::INSTRUCTIONS_PER_MINUTE).fract();
         Some(self.level_at(self.position))
     }
 }
 
 pub struct EcuIo {
     pub config: EcuIoConfig,
-    listener: TcpListener,
+    listener: Option<TcpListener>,
+    embedded: Option<EmbeddedEcuIoLink>,
     client: Option<TcpStream>,
     recv_buffer: Vec<u8>,
     outgoing: VecDeque<u8>,
@@ -128,11 +136,17 @@ pub struct EcuIo {
 
 impl EcuIo {
     pub fn new(config: EcuIoConfig) -> Result<Self> {
-        let listener = TcpListener::bind(&config.listen)
-            .with_context(|| format!("Failed to listen for ECU IO at {}", config.listen))?;
-        listener
-            .set_nonblocking(true)
-            .context("Failed to make ECU IO listener nonblocking")?;
+        let embedded = take_pending_device_link();
+        let listener = if embedded.is_some() {
+            None
+        } else {
+            let listener = TcpListener::bind(&config.listen)
+                .with_context(|| format!("Failed to listen for ECU IO at {}", config.listen))?;
+            listener
+                .set_nonblocking(true)
+                .context("Failed to make ECU IO listener nonblocking")?;
+            Some(listener)
+        };
 
         let adc_channels = config
             .adc_channels
@@ -157,9 +171,14 @@ impl EcuIo {
 
         let trigger_wheel = config.trigger_wheel.clone().map(TriggerWheel::new);
 
+        if let Some(link) = embedded.as_ref() {
+            link.attach_device();
+        }
+
         Ok(Self {
             config,
             listener,
+            embedded,
             client: None,
             recv_buffer: Vec::new(),
             outgoing: VecDeque::new(),
@@ -205,7 +224,9 @@ impl EcuIo {
                 }
                 EcuIoPinDirection::Output => {
                     let s = self_.clone();
-                    gpio.add_write_callback(pin, move |_sys, v| s.borrow_mut().report_output(&name, v));
+                    gpio.add_write_callback(pin, move |_sys, v| {
+                        s.borrow_mut().report_output(&name, v)
+                    });
                 }
             }
         }
@@ -215,11 +236,19 @@ impl EcuIo {
 
     pub fn local_addr(&self) -> Result<SocketAddr> {
         self.listener
+            .as_ref()
+            .context("Embedded ECU I/O has no TCP listener")?
             .local_addr()
             .context("Failed to read ECU IO listener address")
     }
 
     pub fn poll(&mut self) -> Result<()> {
+        if let Some(link) = self.embedded.clone() {
+            for (name, value) in link.take_inputs() {
+                self.set_value(&name, value);
+            }
+            return Ok(());
+        }
         self.accept_clients()?;
         self.receive_from_client()?;
         self.send_to_client()?;
@@ -247,7 +276,11 @@ impl EcuIo {
             let level = self.values.get(name).copied().unwrap_or(0) != 0;
             let previous = self.last_digital_levels.get(name).copied().unwrap_or(false);
             if level != previous {
-                if let Some(irq) = sys.p.exti.borrow_mut().raise_line_if_configured(pin.port(), pin.number(), level) {
+                if let Some(irq) = sys.p.exti.borrow_mut().raise_line_if_configured(
+                    pin.port(),
+                    pin.number(),
+                    level,
+                ) {
                     sys.p.nvic.borrow_mut().set_intr_pending(irq);
                 }
                 self.last_digital_levels.insert(name.clone(), level);
@@ -263,6 +296,12 @@ impl EcuIo {
         let new_value = level as i32;
         let changed = self.values.get(name).copied() != Some(new_value);
         self.values.insert(name.to_string(), new_value);
+        if changed {
+            if let Some(link) = self.embedded.as_ref() {
+                link.publish_output(name, new_value);
+                return;
+            }
+        }
         if changed && self.client.is_some() {
             let line = format!("{name}={new_value}\n");
             Self::push_capped_deque(&mut self.outgoing, &line.into_bytes(), MAX_BUFFERED_BYTES);
@@ -279,7 +318,11 @@ impl EcuIo {
 
     fn accept_clients(&mut self) -> Result<()> {
         loop {
-            match self.listener.accept() {
+            let accepted = match self.listener.as_ref() {
+                Some(listener) => listener.accept(),
+                None => return Ok(()),
+            };
+            match accepted {
                 Ok((client, address)) => {
                     if self.client.is_some() {
                         debug!("Rejecting additional ECU IO client at {address}");
@@ -308,7 +351,11 @@ impl EcuIo {
                         disconnected = true;
                         break;
                     }
-                    Ok(count) => Self::push_capped_vec(&mut self.recv_buffer, &buffer[..count], MAX_BUFFERED_BYTES),
+                    Ok(count) => Self::push_capped_vec(
+                        &mut self.recv_buffer,
+                        &buffer[..count],
+                        MAX_BUFFERED_BYTES,
+                    ),
                     Err(error) if error.kind() == ErrorKind::WouldBlock => break,
                     Err(error) if error.kind() == ErrorKind::ConnectionReset => {
                         disconnected = true;
@@ -397,22 +444,47 @@ impl EcuIo {
     }
 }
 
+impl Drop for EcuIo {
+    fn drop(&mut self) {
+        if let Some(link) = self.embedded.as_ref() {
+            link.detach_device();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, io::{Read, Write}, net::TcpStream, rc::Rc, time::Duration};
+    use std::{
+        cell::RefCell,
+        io::{Read, Write},
+        net::TcpStream,
+        rc::Rc,
+        time::Duration,
+    };
 
-    use unicorn_engine::{unicorn_const::{Arch, Mode}, Unicorn};
+    use unicorn_engine::{
+        unicorn_const::{Arch, Mode},
+        Unicorn,
+    };
 
     use super::{EcuIo, EcuIoAdcChannelConfig, EcuIoConfig};
-    use crate::{ext_devices::ExtDevices, peripherals::{gpio::{GpioPorts, Pin}, Peripherals}, system::System};
+    use crate::{
+        ext_devices::ExtDevices,
+        peripherals::{
+            gpio::{GpioPorts, Pin},
+            Peripherals,
+        },
+        system::System,
+    };
 
     fn test_config() -> EcuIoConfig {
         EcuIoConfig {
             listen: "127.0.0.1:0".to_string(),
             pins: vec![],
-            adc_channels: vec![
-                EcuIoAdcChannelConfig { name: "map".to_string(), pin: "PC0".to_string() },
-            ],
+            adc_channels: vec![EcuIoAdcChannelConfig {
+                name: "map".to_string(),
+                pin: "PC0".to_string(),
+            }],
             trigger_wheel: None,
         }
     }
@@ -421,7 +493,9 @@ mod tests {
     fn a_line_sent_by_the_client_updates_the_named_value() {
         let mut ecu_io = EcuIo::new(test_config()).unwrap();
         let mut client = TcpStream::connect(ecu_io.local_addr().unwrap()).unwrap();
-        client.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
         ecu_io.poll().unwrap(); // accept
 
         client.write_all(b"map=1500\n").unwrap();
@@ -488,7 +562,9 @@ mod tests {
         ecu_io.poll().unwrap();
 
         let mut client = TcpStream::connect(ecu_io.local_addr().unwrap()).unwrap();
-        client.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
         ecu_io.poll().unwrap(); // accept
 
         // Different level than the pre-connection call, so it's a real change and gets queued.
@@ -507,25 +583,38 @@ mod tests {
         ecu_io.poll().unwrap(); // accept
 
         ecu_io.report_output("inj1", true);
-        assert_eq!(ecu_io.outgoing.iter().copied().collect::<Vec<u8>>(), b"inj1=1\n".to_vec());
+        assert_eq!(
+            ecu_io.outgoing.iter().copied().collect::<Vec<u8>>(),
+            b"inj1=1\n".to_vec()
+        );
 
         ecu_io.outgoing.clear();
         ecu_io.report_output("inj1", true); // same level again: must not requeue
-        assert!(ecu_io.outgoing.is_empty(), "same level must not queue a second line");
+        assert!(
+            ecu_io.outgoing.is_empty(),
+            "same level must not queue a second line"
+        );
 
         ecu_io.report_output("inj1", false); // different level: must queue
-        assert_eq!(ecu_io.outgoing.iter().copied().collect::<Vec<u8>>(), b"inj1=0\n".to_vec());
+        assert_eq!(
+            ecu_io.outgoing.iter().copied().collect::<Vec<u8>>(),
+            b"inj1=0\n".to_vec()
+        );
     }
 
     #[test]
     fn a_second_client_is_rejected_while_one_is_already_connected() {
         let mut ecu_io = EcuIo::new(test_config()).unwrap();
         let mut client1 = TcpStream::connect(ecu_io.local_addr().unwrap()).unwrap();
-        client1.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        client1
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
         ecu_io.poll().unwrap(); // accept client1
 
         let mut client2 = TcpStream::connect(ecu_io.local_addr().unwrap()).unwrap();
-        client2.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        client2
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
         for _ in 0..10 {
             ecu_io.poll().unwrap();
             std::thread::sleep(Duration::from_millis(10));
@@ -539,7 +628,9 @@ mod tests {
             Err(error)
                 if error.kind() == std::io::ErrorKind::ConnectionReset
                     || error.kind() == std::io::ErrorKind::ConnectionAborted => {}
-            other => panic!("expected the rejected second client to be disconnected, got {other:?}"),
+            other => {
+                panic!("expected the rejected second client to be disconnected, got {other:?}")
+            }
         }
 
         // The first client must be unaffected by the rejected second connection attempt.
@@ -573,18 +664,33 @@ mod tests {
     fn trigger_wheel_level_is_high_in_the_first_half_of_a_tooth_slot() {
         let wheel = wheel_60_2();
         let slot = 1.0 / 60.0;
-        assert!(wheel.level_at(0.25 * slot), "first half of slot 0 carries the tooth");
+        assert!(
+            wheel.level_at(0.25 * slot),
+            "first half of slot 0 carries the tooth"
+        );
         assert!(!wheel.level_at(0.75 * slot), "second half of slot 0 is low");
-        assert!(wheel.level_at(10.0 * slot + 0.25 * slot), "mid-wheel tooth present");
+        assert!(
+            wheel.level_at(10.0 * slot + 0.25 * slot),
+            "mid-wheel tooth present"
+        );
     }
 
     #[test]
     fn trigger_wheel_missing_teeth_slots_stay_low() {
         let wheel = wheel_60_2();
         let slot = 1.0 / 60.0;
-        assert!(wheel.level_at(57.0 * slot + 0.25 * slot), "slot 57 is the last real tooth");
-        assert!(!wheel.level_at(58.0 * slot + 0.25 * slot), "slot 58 is in the 60-2 gap");
-        assert!(!wheel.level_at(59.0 * slot + 0.25 * slot), "slot 59 is in the 60-2 gap");
+        assert!(
+            wheel.level_at(57.0 * slot + 0.25 * slot),
+            "slot 57 is the last real tooth"
+        );
+        assert!(
+            !wheel.level_at(58.0 * slot + 0.25 * slot),
+            "slot 58 is in the 60-2 gap"
+        );
+        assert!(
+            !wheel.level_at(59.0 * slot + 0.25 * slot),
+            "slot 59 is in the 60-2 gap"
+        );
     }
 
     #[test]
@@ -593,11 +699,19 @@ mod tests {
         // 1200 rpm = 20 rev/s; one rev = 216e6/20 = 10.8M instructions.
         wheel.advance(0, 1200);
         wheel.advance(10_800_000, 1200);
-        assert!(wheel.position < 1e-9 || wheel.position > 1.0 - 1e-9, "full revolution wraps to ~0, got {}", wheel.position);
+        assert!(
+            wheel.position < 1e-9 || wheel.position > 1.0 - 1e-9,
+            "full revolution wraps to ~0, got {}",
+            wheel.position
+        );
 
         // Half a revolution later, position is 0.5 -- continuity across an RPM change.
         wheel.advance(10_800_000 + 2_700_000, 2400);
-        assert!((wheel.position - 0.5).abs() < 1e-9, "got {}", wheel.position);
+        assert!(
+            (wheel.position - 0.5).abs() < 1e-9,
+            "got {}",
+            wheel.position
+        );
     }
 
     #[test]
@@ -606,11 +720,18 @@ mod tests {
         wheel.advance(0, 1200);
         wheel.advance(1_000_000, 1200);
         let position = wheel.position;
-        assert_eq!(wheel.advance(50_000_000, 0), None, "stopped wheel produces no level");
+        assert_eq!(
+            wheel.advance(50_000_000, 0),
+            None,
+            "stopped wheel produces no level"
+        );
         assert_eq!(wheel.position, position, "stopped wheel does not move");
         // Restarting does not jump: time spent stopped is not integrated.
         wheel.advance(50_001_024, 1200);
-        assert!((wheel.position - position) < 0.001, "no position jump after restart");
+        assert!(
+            (wheel.position - position) < 0.001,
+            "no position jump after restart"
+        );
     }
 
     #[test]
@@ -633,14 +754,25 @@ mod tests {
         // at 1200 rpm a slot is 180k instructions, so 45k in (a quarter slot)
         // the level is high and 135k in (three quarters) it is low.
         ecu_io.set_value("trigger_rpm", 1200);
-        assert!(ecu_io.values.contains_key("trigger_rpm"), "trigger signal must be accepted");
+        assert!(
+            ecu_io.values.contains_key("trigger_rpm"),
+            "trigger signal must be accepted"
+        );
 
         ecu_io.advance_trigger_wheel(45_000);
-        assert_eq!(ecu_io.values.get("din1"), Some(&1), "first half of slot 0 is high");
+        assert_eq!(
+            ecu_io.values.get("din1"),
+            Some(&1),
+            "first half of slot 0 is high"
+        );
         assert!(ecu_io.digital_level("din1"));
 
         ecu_io.advance_trigger_wheel(135_000);
-        assert_eq!(ecu_io.values.get("din1"), Some(&0), "second half of slot 0 is low");
+        assert_eq!(
+            ecu_io.values.get("din1"),
+            Some(&0),
+            "second half of slot 0 is low"
+        );
     }
 
     #[test]
@@ -650,7 +782,9 @@ mod tests {
         )
         .unwrap();
 
-        let wheel = config.trigger_wheel.expect("trigger_wheel section must parse");
+        let wheel = config
+            .trigger_wheel
+            .expect("trigger_wheel section must parse");
         assert_eq!(wheel.signal, "trigger_rpm");
         assert_eq!(wheel.pin_signal, "din1");
         assert_eq!(wheel.teeth, 60);
@@ -677,7 +811,11 @@ mod tests {
     // builds `System` from them locally instead.
     fn test_parts() -> (Unicorn<'static, ()>, Rc<Peripherals>, Rc<ExtDevices>) {
         let uc = Unicorn::new(Arch::ARM, Mode::THUMB | Mode::LITTLE_ENDIAN).unwrap();
-        (uc, Rc::new(Peripherals::default()), Rc::new(ExtDevices::default()))
+        (
+            uc,
+            Rc::new(Peripherals::default()),
+            Rc::new(ExtDevices::default()),
+        )
     }
 
     #[test]
@@ -695,7 +833,11 @@ mod tests {
         };
         let ecu_io = EcuIo::register(config, &mut gpio).unwrap();
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
 
         ecu_io.borrow_mut().set_value("crank", 1);
         let port = GpioPorts::port_index('C');
@@ -720,10 +862,16 @@ mod tests {
         };
         let ecu_io = EcuIo::register(config, &mut gpio).unwrap();
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
 
         let mut client = TcpStream::connect(ecu_io.borrow().local_addr().unwrap()).unwrap();
-        client.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
         ecu_io.borrow_mut().poll().unwrap();
 
         let port = GpioPorts::port_index('D');
@@ -751,16 +899,29 @@ mod tests {
         let ecu_io = EcuIo::register(config, &mut gpio).unwrap();
 
         let (mut uc, p, d) = test_parts();
-        p.exti.borrow_mut().write_syscfg(crate::peripherals::exti::Exti::EXTICR2, 2 << 8);
-        p.exti.borrow_mut().write_exti(crate::peripherals::exti::Exti::IMR, 1 << 6);
-        p.exti.borrow_mut().write_exti(crate::peripherals::exti::Exti::RTSR, 1 << 6);
-        let sys = System { uc: RefCell::new(&mut uc), p: p.clone(), d };
+        p.exti
+            .borrow_mut()
+            .write_syscfg(crate::peripherals::exti::Exti::EXTICR2, 2 << 8);
+        p.exti
+            .borrow_mut()
+            .write_exti(crate::peripherals::exti::Exti::IMR, 1 << 6);
+        p.exti
+            .borrow_mut()
+            .write_exti(crate::peripherals::exti::Exti::RTSR, 1 << 6);
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p: p.clone(),
+            d,
+        };
 
         ecu_io.borrow_mut().set_value("crank", 1);
         ecu_io.borrow_mut().check_digital_edges(&sys);
 
         assert_eq!(
-            p.exti.borrow_mut().read_exti(crate::peripherals::exti::Exti::PR) & (1 << 6),
+            p.exti
+                .borrow_mut()
+                .read_exti(crate::peripherals::exti::Exti::PR)
+                & (1 << 6),
             1 << 6
         );
     }

@@ -13,6 +13,7 @@ pub struct Nvic {
 
     // 128 different interrupts. Good enough for now
     pending: u128,
+    enabled: u128,
     in_interrupt: bool,
     // NVIC_IPR0..NVIC_IPR239, one priority byte per external IRQ. Real
     // register storage (unlike every other NVIC register, which this
@@ -35,6 +36,7 @@ impl Default for Nvic {
             systick_period: None,
             last_systick_trigger: 0,
             pending: 0,
+            enabled: 0,
             in_interrupt: false,
             priorities: [0; Nvic::IPR_COUNT],
             active_exception_number: 0,
@@ -66,6 +68,9 @@ impl Nvic {
     // max of 240.
     const IPR_OFFSET: u32 = 0x400;
     const IPR_COUNT: usize = 240;
+    const ISER_OFFSET: u32 = 0x100;
+    const ICER_OFFSET: u32 = 0x180;
+    const ENABLE_WORDS: u32 = 4;
 
     // Peripherals::write/read always hand peripherals a 4-byte-aligned
     // offset (sub-word accesses are merged/split at that layer), so a hit
@@ -78,11 +83,20 @@ impl Nvic {
         }
     }
 
+    fn enable_word(base: u32, offset: u32) -> Option<u32> {
+        let relative = offset.checked_sub(base)?;
+        (relative < Self::ENABLE_WORDS * 4 && relative % 4 == 0).then_some(relative / 4)
+    }
+
     pub fn set_intr_pending(&mut self, irq: i32) {
         trace!("Set irq pending irq={}", irq);
         let bit = IRQ_OFFSET + irq;
         assert!(bit > 0);
         self.pending |= 1 << (IRQ_OFFSET + irq);
+    }
+
+    pub fn is_enabled(&self, irq: i32) -> bool {
+        (0..128).contains(&irq) && self.enabled & (1u128 << irq) != 0
     }
 
     pub fn get_and_clear_next_intr_pending(&mut self) -> Option<i32> {
@@ -94,6 +108,25 @@ impl Nvic {
         } else {
             None
         }
+    }
+
+    fn get_and_clear_next_dispatchable(&mut self) -> Option<i32> {
+        // Architectural exceptions (negative IRQ values in this model) do
+        // not use NVIC ISER. External interrupts must remain pending until
+        // firmware enables their vector. Dispatching a TIM/DMA interrupt in
+        // the small window before nvicEnableVector() finishes lets its
+        // handler run with the reset priority and trips EpicEFI's
+        // assertInterruptPriority().
+        let architectural_mask = (1_u128 << IRQ_OFFSET) - 1;
+        let enabled_external = self.enabled << IRQ_OFFSET;
+        let dispatchable = self.pending & (architectural_mask | enabled_external);
+        if dispatchable == 0 {
+            return None;
+        }
+
+        let bit = dispatchable.trailing_zeros();
+        self.pending &= !(1 << bit);
+        Some(bit as i32 - IRQ_OFFSET)
     }
 
     pub fn maybe_set_systick_intr_pending(&mut self) {
@@ -147,7 +180,7 @@ impl Nvic {
             return;
         }
 
-        if let Some(irq) = self.get_and_clear_next_intr_pending() {
+        if let Some(irq) = self.get_and_clear_next_dispatchable() {
             self.run_interrupt(sys, vector_table_addr, irq);
         }
     }
@@ -166,7 +199,6 @@ impl Nvic {
 
     fn run_interrupt(&mut self, sys: &System, vector_table_addr: u32, irq: i32) {
         let vector = Self::read_vector_addr(sys, vector_table_addr, irq);
-
         let mut uc = sys.uc.borrow_mut();
 
         // SPSEL, bit[1], 0 means we use MSP, 1 means we use PSP.
@@ -403,6 +435,12 @@ impl Nvic {
 
 impl Peripheral for Nvic {
     fn read(&mut self, _sys: &System, offset: u32) -> u32 {
+        if let Some(word) = Self::enable_word(Self::ISER_OFFSET, offset) {
+            return (self.enabled >> (word * 32)) as u32;
+        }
+        if let Some(word) = Self::enable_word(Self::ICER_OFFSET, offset) {
+            return (self.enabled >> (word * 32)) as u32;
+        }
         if let Some(base) = Self::ipr_word_base(offset) {
             return u32::from_le_bytes([
                 self.priorities[base],
@@ -415,6 +453,14 @@ impl Peripheral for Nvic {
     }
 
     fn write(&mut self, _sys: &System, offset: u32, value: u32) {
+        if let Some(word) = Self::enable_word(Self::ISER_OFFSET, offset) {
+            self.enabled |= (value as u128) << (word * 32);
+            return;
+        }
+        if let Some(word) = Self::enable_word(Self::ICER_OFFSET, offset) {
+            self.enabled &= !((value as u128) << (word * 32));
+            return;
+        }
         if let Some(base) = Self::ipr_word_base(offset) {
             self.priorities[base..base + 4].copy_from_slice(&value.to_le_bytes());
         }
@@ -479,7 +525,10 @@ impl Peripheral for NvicStir {
     fn write(&mut self, sys: &System, offset: u32, value: u32) {
         if offset == 0 {
             // INTID is 9 bits: the external interrupt number to pend.
-            sys.p.nvic.borrow_mut().set_intr_pending((value & 0x1ff) as i32);
+            sys.p
+                .nvic
+                .borrow_mut()
+                .set_intr_pending((value & 0x1ff) as i32);
         }
     }
 }
@@ -542,18 +591,29 @@ mod tests {
     fn test_parts() -> (Unicorn<'static, ()>, Rc<Peripherals>, Rc<ExtDevices>) {
         let mut uc = Unicorn::new(Arch::ARM, Mode::THUMB | Mode::LITTLE_ENDIAN).unwrap();
         uc.ctl_set_cpu_model(ArmCpuModel::CORTEX_M4 as i32).unwrap();
-        (uc, Rc::new(Peripherals::default()), Rc::new(ExtDevices::default()))
+        (
+            uc,
+            Rc::new(Peripherals::default()),
+            Rc::new(ExtDevices::default()),
+        )
     }
 
     #[test]
     fn stir_write_pends_the_requested_external_interrupt() {
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p: p.clone(), d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p: p.clone(),
+            d,
+        };
 
         let mut stir = NvicStir;
         stir.write(&sys, 0, 31); // I2C1_EV_IRQn, as epicEFI's triggerInterrupt() writes
 
-        assert_eq!(p.nvic.borrow_mut().get_and_clear_next_intr_pending(), Some(31));
+        assert_eq!(
+            p.nvic.borrow_mut().get_and_clear_next_intr_pending(),
+            Some(31)
+        );
     }
 
     #[test]
@@ -568,7 +628,11 @@ mod tests {
         // Simulate the interrupted context being mid-IT-block.
         uc.reg_write(RegisterARM::XPSR, 0x0600_fc00).unwrap();
 
-        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
         Nvic::default().run_interrupt(&sys, 0x0000_0000, 0);
 
         let xpsr = sys.uc.borrow_mut().reg_read(RegisterARM::XPSR).unwrap() as u32;
@@ -589,8 +653,13 @@ mod tests {
         uc.reg_write(RegisterARM::CONTROL, 0).unwrap();
         uc.reg_write(RegisterARM::PC, 0x100).unwrap();
 
-        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
         let mut nvic = Nvic::default();
+        nvic.enabled |= 1;
         nvic.set_intr_pending(0);
         // Mid-IT-block state as run_pending_interrupts now sees it: ITSTATE
         // bits set in XPSR. This is reliable at the call sites (translation
@@ -606,14 +675,23 @@ mod tests {
 
         // Dispatch must be deferred: PC untouched, not marked in-interrupt,
         // and the interrupt is still queued for the next attempt.
-        assert_eq!(sys.uc.borrow_mut().reg_read(RegisterARM::PC).unwrap(), 0x100);
+        assert_eq!(
+            sys.uc.borrow_mut().reg_read(RegisterARM::PC).unwrap(),
+            0x100
+        );
         assert!(!nvic.in_interrupt);
 
         // Once ITSTATE clears (block completed naturally), the still-pending
         // interrupt dispatches normally.
-        sys.uc.borrow_mut().reg_write(RegisterARM::XPSR, xpsr as u64).unwrap();
+        sys.uc
+            .borrow_mut()
+            .reg_write(RegisterARM::XPSR, xpsr as u64)
+            .unwrap();
         nvic.run_pending_interrupts(&sys, 0x0000_0000);
-        assert_eq!(sys.uc.borrow_mut().reg_read(RegisterARM::PC).unwrap(), 0x1000);
+        assert_eq!(
+            sys.uc.borrow_mut().reg_read(RegisterARM::PC).unwrap(),
+            0x1000
+        );
         assert!(nvic.in_interrupt);
     }
 
@@ -624,7 +702,11 @@ mod tests {
         // doesn't match what it wrote -- unlike every other NVIC register
         // here, this one has to actually hold state.
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
         let mut nvic = Nvic::default();
 
         // IPR12 (offset 0x430) packs the priority bytes for IRQ 48-51; TIM5
@@ -646,11 +728,51 @@ mod tests {
         // behavior and must keep reading back 0 regardless of what's
         // written.
         let (mut uc, p, d) = test_parts();
-        let sys = System { uc: RefCell::new(&mut uc), p, d };
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
         let mut nvic = Nvic::default();
 
         nvic.write(&sys, 0x0000, 0xffff_ffff);
 
         assert_eq!(nvic.read(&sys, 0x0000), 0);
+    }
+
+    #[test]
+    fn interrupt_enable_registers_retain_set_and_clear_state() {
+        let (mut uc, p, d) = test_parts();
+        let sys = System {
+            uc: RefCell::new(&mut uc),
+            p,
+            d,
+        };
+        let mut nvic = Nvic::default();
+        let irq = 67;
+        let mask = 1 << (irq % 32);
+
+        nvic.write(&sys, Nvic::ISER_OFFSET + (irq / 32) as u32 * 4, mask);
+        assert!(nvic.is_enabled(irq));
+        assert_eq!(
+            nvic.read(&sys, Nvic::ISER_OFFSET + (irq / 32) as u32 * 4),
+            mask
+        );
+
+        nvic.write(&sys, Nvic::ICER_OFFSET + (irq / 32) as u32 * 4, mask);
+        assert!(!nvic.is_enabled(irq));
+    }
+
+    #[test]
+    fn external_interrupt_stays_pending_until_its_vector_is_enabled() {
+        let mut nvic = Nvic::default();
+        let irq = 54;
+        nvic.set_intr_pending(irq);
+
+        assert_eq!(nvic.get_and_clear_next_dispatchable(), None);
+
+        nvic.enabled |= 1_u128 << irq;
+        assert_eq!(nvic.get_and_clear_next_dispatchable(), Some(irq));
+        assert_eq!(nvic.pending, 0);
     }
 }
