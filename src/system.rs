@@ -4,7 +4,7 @@ use crate::{
     config::Config,
     ext_devices::ExtDevices,
     framebuffers::Framebuffers,
-    peripherals::{gpio::GpioPorts, Peripherals},
+    peripherals::{flash::Flash, gpio::GpioPorts, Peripherals},
     util::{self, round_up, UniErr},
 };
 use anyhow::{Context as _, Result};
@@ -87,12 +87,20 @@ fn load_memory_regions(uc: &mut Unicorn<()>, config: &Config) -> Result<()> {
             .map_err(UniErr)
             .with_context(|| format!("Memory mapping of peripheral={} failed", region.name))?;
 
+        if let Some(internal_flash) = config.internal_flash.as_ref() {
+            Flash::initialize_memory(uc, internal_flash, std::slice::from_ref(region))?;
+        }
+
         if let Some(ref load) = region.load {
             info!("Loading file={} at base=0x{:08x}", load, region.start);
             let content = util::read_file(load)?;
             let content = &content[0..content.len().min(size)];
             uc.mem_write(region.start.into(), content).map_err(UniErr)?;
         }
+    }
+
+    if let Some(internal_flash) = config.internal_flash.as_ref() {
+        Flash::load_persistent(uc, internal_flash)?;
     }
 
     for patch in config.patches.as_ref().unwrap_or(&vec![]) {
@@ -122,6 +130,7 @@ pub fn prepare<'a, 'b>(
         config.peripherals.unwrap_or_default(),
         gpio,
         &ext_devices,
+        config.internal_flash,
     );
 
     let mut system = System::new(uc, peripherals, ext_devices);

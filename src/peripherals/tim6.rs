@@ -112,10 +112,7 @@ impl Peripheral for Tim6 {
         }
 
         if self.sr & Self::SR_UIF != 0 && self.dier & Self::DIER_UIE != 0 {
-            sys.p
-                .nvic
-                .borrow_mut()
-                .set_intr_pending(TIM6_DAC_IRQ);
+            sys.p.nvic.borrow_mut().set_intr_pending(TIM6_DAC_IRQ);
         }
     }
 }

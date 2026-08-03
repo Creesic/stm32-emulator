@@ -26,6 +26,17 @@ regions:
   - name: SRAM2
     start: 0x2007c000
     size: 0x4000
+internal_flash:
+  model: stm32-f7-dual-bank
+  start: 0x08000000
+  size: 0x200000
+  aliases: [0x00200000]
+  # The firmware image occupies bank 1. EpicEFI stores its two redundant
+  # configuration records in bank 2, so only that bank is host-persistent.
+  # Embedded hosts select the writable backing-file location.
+  persistent:
+    start: 0x08100000
+    size: 0x100000
 patches:
   # STM32F767's flash-size ID register (FLASHSIZE_BASE, RM0410) -- firmware
   # reads this at boot via TM_ID_GetFlashSize() and refuses to continue if

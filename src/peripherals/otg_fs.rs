@@ -505,6 +505,47 @@ impl OtgFs {
         }
     }
 
+    fn forward_bulk_out(&mut self) {
+        if !self.is_configured() {
+            return;
+        }
+        let (Some(out_ep), Some(bridge)) = (self.bulk_out_endpoint, self.bridge.as_ref()) else {
+            return;
+        };
+
+        // A USB host may only deliver an OUT packet while the device endpoint
+        // is armed. The previous bridge drained one packet on every emulator
+        // poll, even after firmware had not yet consumed the prior packet.
+        // A multi-kilobyte TunerStudio write could therefore enqueue dozens
+        // of RX statuses in a few hundred guest instructions and wedge the
+        // ChibiOS USB receive state. Model the hardware NAK/flow-control
+        // boundary: one packet per firmware arm, then wait for it to re-arm.
+        if self.ep_out[out_ep].ctl & Self::DIEPCTL_EPENA == 0 {
+            return;
+        }
+        let requested = self.ep_out[out_ep].tsiz & Self::XFRSIZ_MASK;
+        if requested == 0 {
+            return;
+        }
+        let maximum = 64usize.min(requested as usize);
+        let bytes = bridge.borrow_mut().take_for_device(maximum);
+        if bytes.is_empty() {
+            return;
+        }
+
+        self.ep_out[out_ep].ctl &= !Self::DIEPCTL_EPENA;
+        let remaining = requested.saturating_sub(bytes.len() as u32);
+        self.ep_out[out_ep].tsiz = (self.ep_out[out_ep].tsiz & !Self::XFRSIZ_MASK) | remaining;
+        self.rx_fifo.extend(bytes.iter().copied());
+        self.rx_status.push_back(Self::rx_status_word(
+            Self::RXSTS_OUT_DATA,
+            bytes.len() as u32,
+            out_ep,
+        ));
+        self.rx_status
+            .push_back(Self::rx_status_word(Self::RXSTS_OUT_COMP, 0, out_ep));
+    }
+
     #[cfg(test)]
     fn next_setup_request(&self) -> [u8; 8] {
         let mut packet = [0u8; 8];
@@ -733,27 +774,7 @@ impl Peripheral for OtgFs {
             }
         }
 
-        if self.is_configured() {
-            if let (Some(out_ep), Some(bridge)) = (self.bulk_out_endpoint, self.bridge.as_ref()) {
-                let bytes = bridge.borrow_mut().take_for_device(64);
-                if !bytes.is_empty() {
-                    self.rx_fifo.extend(bytes.iter().copied());
-                    self.rx_status.push_back(Self::rx_status_word(
-                        Self::RXSTS_OUT_DATA,
-                        bytes.len() as u32,
-                        out_ep,
-                    ));
-                    self.rx_status
-                        .push_back(Self::rx_status_word(Self::RXSTS_OUT_COMP, 0, out_ep));
-                    // DOEPINT.XFRC and GINTSTS.RXFLVL are NOT raised here for
-                    // the same reason virtual_host_setup no longer raises
-                    // STUP eagerly: GRXSTSP's OUT_COMP pop (register_read)
-                    // raises XFRC once firmware actually consumes the data,
-                    // and RXFLVL is computed dynamically from rx_status
-                    // non-emptiness (effective_gintsts).
-                }
-            }
-        }
+        self.forward_bulk_out();
 
         if self.interrupt_pending() {
             sys.p.nvic.borrow_mut().set_intr_pending(67);
@@ -1023,6 +1044,43 @@ mod tests {
         // xfrsiz=3 truncates the word-padded 4-byte push (0x42,0x00,0xff,0x00)
         // to the 3 bytes the endpoint's DIEPTSIZ actually asked to send.
         assert_eq!(otg.pending_bridge_writes, vec![0x42, 0x00, 0xff]);
+    }
+
+    #[test]
+    fn configured_bulk_out_waits_for_firmware_to_rearm_the_endpoint() {
+        let link = EmbeddedCdcLink::new();
+        let mut otg = OtgFs::for_test();
+        otg.bridge = Some(embedded_bridge(link.clone()));
+        otg.virtual_host_step = VirtualHostStep::Configured;
+        otg.set_bulk_endpoints(1, 1);
+        link.set_protocol_stage(crate::ext_devices::embedded_cdc::EmbeddedCdcStage::ProtocolReady);
+        link.connect().unwrap();
+        link.write_from_host(&vec![0x5a; 128]).unwrap();
+
+        let out_base = OtgFs::DOEP_BASE + OtgFs::EP_STRIDE;
+        otg.register_write(out_base + OtgFs::EP_TSIZ_OFFSET, 64);
+        otg.register_write(out_base + OtgFs::EP_CTL_OFFSET, OtgFs::DIEPCTL_EPENA);
+        otg.forward_bulk_out();
+        assert_eq!(otg.rx_fifo.len(), 64);
+        assert_eq!(otg.rx_status.len(), 2);
+        assert_eq!(
+            otg.register_read(out_base + OtgFs::EP_CTL_OFFSET) & OtgFs::DIEPCTL_EPENA,
+            0
+        );
+
+        // Polling again before firmware re-arms the endpoint must leave the
+        // second packet queued at the host instead of flooding the RX FIFO.
+        otg.forward_bulk_out();
+        assert_eq!(otg.rx_fifo.len(), 64);
+        assert_eq!(otg.rx_status.len(), 2);
+
+        otg.register_read(OtgFs::GRXSTSP);
+        otg.register_read(OtgFs::GRXSTSP);
+        otg.register_write(out_base + OtgFs::EP_TSIZ_OFFSET, 64);
+        otg.register_write(out_base + OtgFs::EP_CTL_OFFSET, OtgFs::DIEPCTL_EPENA);
+        otg.forward_bulk_out();
+        assert_eq!(otg.rx_fifo.len(), 128);
+        assert_eq!(otg.rx_status.len(), 2);
     }
 
     #[test]

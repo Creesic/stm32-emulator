@@ -53,7 +53,7 @@ use std::{
 };
 use svd_parser::svd::{Device as SvdDevice, RegisterInfo};
 
-use crate::{ext_devices::ExtDevices, system::System};
+use crate::{config::InternalFlashConfig, ext_devices::ExtDevices, system::System};
 
 #[derive(Debug, Deserialize, Default)]
 pub struct PeripheralsConfig {
@@ -271,6 +271,7 @@ impl Peripherals {
         base: u32,
         registers: &[RegisterInfo],
         ext_devices: &ExtDevices,
+        internal_flash: Option<InternalFlashConfig>,
     ) {
         let p = GenericPeripheral::new(name.clone(), registers);
 
@@ -304,7 +305,7 @@ impl Peripherals {
             .or_else(|| Pwr::new(&name))
             .or_else(|| OtgFs::new(&name, ext_devices))
             .or_else(|| Rtc::new(&name))
-            .or_else(|| Flash::new(&name))
+            .or_else(|| Flash::new(&name, internal_flash))
             .or_else(|| Tim11::new(&name))
             .or_else(|| Tim5::new(&name))
             .or_else(|| Tim6::new(&name))
@@ -404,6 +405,7 @@ impl Peripherals {
         config: PeripheralsConfig,
         gpio: GpioPorts,
         ext_devices: &ExtDevices,
+        internal_flash: Option<InternalFlashConfig>,
     ) -> Self {
         let mut peripherals = Self {
             gpio: RefCell::new(gpio),
@@ -432,7 +434,13 @@ impl Peripherals {
 
             let regs = crate::util::extract_svd_registers(p);
 
-            peripherals.register_peripheral(name.to_string(), base as u32, &regs, ext_devices);
+            peripherals.register_peripheral(
+                name.to_string(),
+                base as u32,
+                &regs,
+                ext_devices,
+                internal_flash.clone(),
+            );
 
             if crate::verbose() >= 3 {
                 for r in &regs {

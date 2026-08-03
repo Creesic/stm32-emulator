@@ -18,6 +18,10 @@ static EMBEDDED_RUNNING: AtomicBool = AtomicBool::new(false);
 #[derive(Clone, Debug)]
 pub struct EmbeddedEmulatorOptions {
     pub config_path: PathBuf,
+    /// Optional host-selected backing file for the configured persistent
+    /// internal-flash range. This keeps writable simulator state outside a
+    /// read-only application or submodule installation.
+    pub flash_backing_path: Option<PathBuf>,
     pub verbose: u8,
     pub max_instructions: Option<u64>,
     pub stop_addr: Option<u32>,
@@ -32,6 +36,7 @@ impl EmbeddedEmulatorOptions {
     pub fn new(config_path: impl Into<PathBuf>) -> Self {
         Self {
             config_path: config_path.into(),
+            flash_backing_path: None,
             verbose: 0,
             max_instructions: None,
             stop_addr: None,
@@ -66,6 +71,14 @@ pub fn run_embedded(options: EmbeddedEmulatorOptions) -> Result<()> {
     let mut config: Config = serde_yaml::from_str(&read_file_str(config_path_text)?)
         .with_context(|| format!("Failed to parse {}", config_path.display()))?;
     resolve_config_paths(&mut config, base);
+    if let Some(backing_file) = options.flash_backing_path {
+        let persistent = config
+            .internal_flash
+            .as_mut()
+            .and_then(|flash| flash.persistent.as_mut())
+            .context("flash_backing_path requires an internal_flash.persistent configuration")?;
+        persistent.backing_file = Some(backing_file);
+    }
 
     let device = svd_parser::parse(&read_file_str(&config.cpu.svd)?)
         .with_context(|| format!("Failed to parse {}", config.cpu.svd))?;
@@ -135,15 +148,23 @@ fn resolve_config_paths(config: &mut Config, base: &Path) {
     config.cpu.svd = resolve_path(base, &config.cpu.svd).display().to_string();
     for region in &mut config.regions {
         if let Some(load) = region.load.as_mut() {
-            *load = resolve_path(base, load).display().to_string();
+            *load = resolve_path(base, &*load).display().to_string();
         }
+    }
+    if let Some(backing_file) = config
+        .internal_flash
+        .as_mut()
+        .and_then(|flash| flash.persistent.as_mut())
+        .and_then(|persistent| persistent.backing_file.as_mut())
+    {
+        *backing_file = resolve_path(base, &*backing_file).to_path_buf();
     }
 }
 
-fn resolve_path(base: &Path, value: &str) -> PathBuf {
-    let path = PathBuf::from(value);
+fn resolve_path(base: &Path, value: impl AsRef<Path>) -> PathBuf {
+    let path = value.as_ref();
     if path.is_absolute() {
-        path
+        path.to_path_buf()
     } else {
         base.join(path)
     }
@@ -159,6 +180,7 @@ mod tests {
         assert_eq!(options.interrupt_period, 1);
         assert_eq!(options.max_instructions, None);
         assert!(!options.busy_loop_stop);
+        assert_eq!(options.flash_backing_path, None);
     }
 
     #[test]
