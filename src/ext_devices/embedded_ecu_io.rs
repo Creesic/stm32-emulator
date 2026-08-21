@@ -13,6 +13,10 @@ pub struct EmbeddedOutputEvent {
     pub name: String,
     pub previous_value: Option<i32>,
     pub value: i32,
+    /// Crank trigger-wheel angle at this transition, in millidegrees
+    /// [0, 360_000), when a trigger wheel is configured. Lets the engine
+    /// plant measure ignition/injection timing exactly in firmware time.
+    pub wheel_angle_mdeg: Option<i32>,
 }
 
 #[derive(Clone, Debug)]
@@ -92,7 +96,7 @@ impl EmbeddedEcuIoLink {
             .collect()
     }
 
-    pub(crate) fn publish_output(&self, name: &str, value: i32) {
+    pub(crate) fn publish_output(&self, name: &str, value: i32, wheel_angle_mdeg: Option<i32>) {
         let mut state = self.inner.lock().expect("embedded ECU I/O mutex poisoned");
         let previous_value = state.outputs.insert(name.to_string(), value);
         if previous_value == Some(value) {
@@ -109,6 +113,7 @@ impl EmbeddedEcuIoLink {
             name: name.to_string(),
             previous_value,
             value,
+            wheel_angle_mdeg,
         });
     }
 
@@ -180,15 +185,17 @@ mod tests {
         link.attach_device();
         link.set_input("trigger_rpm", 1250);
         assert_eq!(link.take_inputs(), vec![("trigger_rpm".to_string(), 1250)]);
-        link.publish_output("ign1", 1);
+        link.publish_output("ign1", 1, None);
         assert_eq!(link.outputs().get("ign1"), Some(&1));
-        link.publish_output("ign1", 0);
+        link.publish_output("ign1", 0, Some(340_000));
         let events = link.take_output_events();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].name, "ign1");
         assert_eq!(events[0].previous_value, None);
         assert_eq!(events[0].value, 1);
+        assert_eq!(events[0].wheel_angle_mdeg, None);
         assert_eq!(events[1].previous_value, Some(1));
         assert_eq!(events[1].value, 0);
+        assert_eq!(events[1].wheel_angle_mdeg, Some(340_000));
     }
 }

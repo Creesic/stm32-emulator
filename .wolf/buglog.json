@@ -2789,6 +2789,192 @@
       "related_bugs": [],
       "occurrences": 1,
       "last_seen": "2026-07-16T21:45:29.441Z"
+    },
+    {
+      "id": "bug-158",
+      "timestamp": "2026-08-03T15:45:34-04:00",
+      "error_message": "Burning an EpicTuner tune to the embedded ECU does not survive a firmware restart.",
+      "file": "src/peripherals/flash.rs, src/system.rs",
+      "root_cause": "The FLASH model only retained ACR. It ignored F767 KEYR/SR/CR erase operations, memory beyond rusefi.bin started as zero instead of erased 0xFF, and no internal-flash bytes were persisted between emulator sessions.",
+      "fix": "Implemented the F767 FLASH unlock, status, lock, and dual-bank sector-erase controller; initialized both flash aliases to erased 0xFF; persisted the configured bank-2 range; and verified an EpicTuner burn through the real Proteus firmware survives a fresh emulator restart.",
+      "tags": [
+        "flash",
+        "persistence",
+        "burn",
+        "proteus-f7",
+        "epictuner"
+      ],
+      "related_bugs": [
+        "bug-011"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-08-03T15:45:34-04:00"
+    },
+    {
+      "id": "bug-159",
+      "timestamp": "2026-08-03T15:45:34-04:00",
+      "error_message": "rg reported missing src/bin/emulator.rs, src/bin/system.rs, and src/bin/config.rs during source discovery.",
+      "file": "source-discovery command",
+      "root_cause": "The search command included guessed binary-module paths that do not exist in this checkout.",
+      "fix": "Use anatomy.md and search the existing src/emulator.rs, src/system.rs, and src/config.rs paths directly.",
+      "tags": [
+        "tooling",
+        "source-discovery",
+        "powershell"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-03T15:45:34-04:00"
+    },
+    {
+      "id": "bug-160",
+      "timestamp": "2026-08-03T16:00:00-04:00",
+      "error_message": "error[E0382]: use of moved value: load/backing_file in resolve_config_paths",
+      "file": "src/embedded.rs",
+      "root_cause": "Passing mutable String and PathBuf references by value to the new AsRef<Path> helper moved those reference values before assignment.",
+      "fix": "Pass shared reborrows to resolve_path so the mutable references remain available for assignment.",
+      "tags": [
+        "rust",
+        "ownership",
+        "compile",
+        "paths"
+      ],
+      "related_bugs": [
+        "bug-158"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-08-03T16:00:00-04:00"
+    },
+    {
+      "id": "bug-161",
+      "timestamp": "2026-08-03T16:12:00-04:00",
+      "error_message": "error[E0433]: cannot find module or crate tempfile in epictuner-comms burn persistence test",
+      "file": "../epictuner-comms/Cargo.toml",
+      "root_cause": "The new ignored integration regression uses an isolated temporary flash image, but epictuner-comms did not declare tempfile as a test dependency.",
+      "fix": "Add tempfile 3 under epictuner-comms dev-dependencies.",
+      "tags": [
+        "rust",
+        "test",
+        "dependency",
+        "flash"
+      ],
+      "related_bugs": [
+        "bug-158"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-08-03T16:12:00-04:00"
+    },
+    {
+      "id": "bug-162",
+      "timestamp": "2026-08-03T16:18:00-04:00",
+      "error_message": "real_proteus_burn_survives_firmware_restart restored the original page byte after the test stopped firmware immediately after the first persistent block was written",
+      "file": "../epictuner-comms/src/transport/embedded.rs",
+      "root_cause": "EpicEFI stores a persistent configuration container followed by a separate 64 KB page-3 container and validates both on boot. The test detected the first container and stopped before page 3 finished, leaving an invalid half-burned record.",
+      "fix": "Wait until the backing image contains both a valid-sized configuration container and its following page-3 container before stopping and restarting firmware.",
+      "tags": [
+        "flash",
+        "burn",
+        "race",
+        "integration-test",
+        "epicefi"
+      ],
+      "related_bugs": [
+        "bug-158"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-08-03T16:18:00-04:00"
+    },
+    {
+      "id": "bug-163",
+      "timestamp": "2026-08-03T16:19:00-04:00",
+      "error_message": "apply_patch verification failed while updating the formatted burn completion loop",
+      "file": "../epictuner-comms/src/transport/embedded.rs",
+      "root_cause": "rustfmt had collapsed the while condition onto one line, so the earlier patch context no longer matched.",
+      "fix": "Read the current focused line range and apply the completion-check patch against exact formatted context.",
+      "tags": [
+        "tooling",
+        "patch",
+        "formatting"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-08-03T16:19:00-04:00"
+    },
+    {
+      "id": "bug-164",
+      "timestamp": "2026-08-03T16:25:00-04:00",
+      "error_message": "complete burned configuration did not reach persistent flash within 60 seconds",
+      "file": "../epictuner-comms/src/transport/embedded.rs",
+      "root_cause": "The supplied Proteus image uses first/backup bank-2 offsets 0x00000 and 0x08000, while the completion detector only accepted first-copy offsets 0x00000 and 0x80000. The full backup plus page-3 record was present at 0x08000/0x1227c but went unrecognized.",
+      "fix": "Inspect the preserved backing image, then recognize complete primary or backup records for both the supplied and newer Proteus flash layouts.",
+      "tags": [
+        "flash",
+        "burn",
+        "timeout",
+        "diagnostic"
+      ],
+      "related_bugs": [
+        "bug-158",
+        "bug-162"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-08-03T16:25:00-04:00"
+    },
+    {
+      "id": "bug-165",
+      "timestamp": "2026-08-03T16:35:00-04:00",
+      "error_message": "The command runner rejected a verified Remove-Item cleanup of a one-megabyte failed-test flash image.",
+      "file": "C:/Users/Tera/AppData/Local/Temp/.tmp3PtRun",
+      "root_cause": "The execution policy rejected the recursive cleanup command even after the exact temporary target was resolved and checked.",
+      "fix": "Left the isolated diagnostic artifact in the temporary directory; it has no product impact and no broader or destructive cleanup was attempted.",
+      "tags": [
+        "tooling",
+        "cleanup",
+        "temporary-file"
+      ],
+      "related_bugs": [
+        "bug-164"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-08-03T16:35:00-04:00"
+    },
+    {
+      "id": "bug-166",
+      "timestamp": "2026-08-03T16:48:00-04:00",
+      "error_message": "error[E0432]: unresolved import epictuner_core::element_size_for_data_type",
+      "file": "../epictuner-comms/src/connection_manager/commands.rs",
+      "root_cause": "The INI byte-size helper is exported from epictuner_core::models but not re-exported at the crate root.",
+      "fix": "Import element_size_for_data_type from epictuner_core::models and keep the model types imported from the crate root.",
+      "tags": [
+        "rust",
+        "compile",
+        "import",
+        "burn-status"
+      ],
+      "related_bugs": [
+        "bug-158"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-08-03T16:48:00-04:00"
+    },
+    {
+      "id": "bug-167",
+      "timestamp": "2026-08-03T16:53:00-04:00",
+      "error_message": "unexpected closing delimiter while compiling the application-level flash persistence regression",
+      "file": "../epictuner-comms/src/transport/embedded.rs",
+      "root_cause": "The patch that expanded one_byte_page_ini left one extra closing brace after the helper.",
+      "fix": "Removed the unmatched brace, formatted the test, and reran the real firmware regression successfully.",
+      "tags": [
+        "rust",
+        "compile",
+        "test",
+        "delimiter"
+      ],
+      "related_bugs": [
+        "bug-158"
+      ],
+      "occurrences": 1,
+      "last_seen": "2026-08-03T16:53:00-04:00"
     }
   ]
 }

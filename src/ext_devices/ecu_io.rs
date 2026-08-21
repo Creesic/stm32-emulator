@@ -99,6 +99,18 @@ impl TriggerWheel {
         slot < self.config.teeth - self.config.missing && in_first_half
     }
 
+    /// Projects the wheel angle at `now_instructions` in millidegrees
+    /// [0, 360_000) without advancing the wheel, so output events recorded
+    /// between `advance` calls can be stamped exactly without disturbing
+    /// tooth-edge delivery.
+    fn project_angle_mdeg(&self, now_instructions: u64, rpm: i32) -> i32 {
+        let delta = now_instructions.saturating_sub(self.last_instructions);
+        let rpm = rpm.clamp(0, 30_000) as f64;
+        let position =
+            (self.position + delta as f64 * rpm / Self::INSTRUCTIONS_PER_MINUTE).fract();
+        (position * 360_000.0) as i32
+    }
+
     /// Advances to `now_instructions` at `rpm` and returns the new level,
     /// or None while stopped (rpm <= 0): the level holds and time simply
     /// passes. Position stays continuous across RPM changes.
@@ -298,7 +310,11 @@ impl EcuIo {
         self.values.insert(name.to_string(), new_value);
         if changed {
             if let Some(link) = self.embedded.as_ref() {
-                link.publish_output(name, new_value);
+                let wheel_angle_mdeg = self.trigger_wheel.as_ref().map(|wheel| {
+                    let rpm = self.values.get(&wheel.config.signal).copied().unwrap_or(0);
+                    wheel.project_angle_mdeg(crate::emulator::instruction_count(), rpm)
+                });
+                link.publish_output(name, new_value, wheel_angle_mdeg);
                 return;
             }
         }
@@ -712,6 +728,20 @@ mod tests {
             "got {}",
             wheel.position
         );
+    }
+
+    #[test]
+    fn trigger_wheel_projects_the_angle_between_advances_without_moving() {
+        let mut wheel = wheel_60_2();
+        // 1200 rpm = 20 rev/s; a quarter revolution = 216e6/20/4 = 2.7M instructions.
+        wheel.advance(0, 1200);
+        assert_eq!(wheel.project_angle_mdeg(2_700_000, 1200), 90_000);
+        assert_eq!(
+            wheel.last_instructions, 0,
+            "projection must not advance the wheel"
+        );
+        // Stopped wheel projects its held position.
+        assert_eq!(wheel.project_angle_mdeg(2_700_000, 0), 0);
     }
 
     #[test]
